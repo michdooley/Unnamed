@@ -23,9 +23,6 @@ struct PlayerBar: View {
             let artwork = model.artwork(forTrack: trackID, in: player.contextCollectionID)
             HStack(spacing: 14) {
                 DiscView(artworkURL: artwork.url, seed: artwork.seed, spinning: player.isPlaying, speed: 30, scratch: .record(player))
-                    #if DEBUG
-                    .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { DebugSupport.miniDiscFrame = $0 }
-                    #endif
                     .frame(width: 42, height: 42)
                     .onTapGesture { model.revealNowPlaying() }
                     .help("Show track details")

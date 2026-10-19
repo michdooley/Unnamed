@@ -12,9 +12,6 @@ import UnnamedKit
 /// - `-snapshot` (with `-demoLibrary`) walks through the main screens, saves a
 ///   PNG of each to the container's tmp/snapshots folder, then quits.
 enum DebugSupport {
-    /// Where the record behind the collection cover is, in window coordinates (top-left origin).
-    static var bigDiscFrame: CGRect?
-    static var miniDiscFrame: CGRect?
     static var arguments: [String] { ProcessInfo.processInfo.arguments }
 
     static func demoLibraryURL() -> URL? {
@@ -436,6 +433,18 @@ enum DebugSupport {
     /// panel, so the real pointer doesn't move) and checks each one scratches.
     @MainActor
     private static func probeScratching(store: LibraryStore, collectionID: UUID) async {
+        await probeScratchingOnce(store: store, collectionID: collectionID, label: "")
+        // Photos are rarely square: cover art drawn to fill must not spill over the record.
+        let wide = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 320, pixelsHigh: 120, bitsPerSample: 8, samplesPerPixel: 4,
+                                    hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+        for i in 0..<320 { for j in 0..<120 { wide.setColor(NSColor(red: Double(i) / 320, green: 0.3, blue: Double(j) / 120, alpha: 1), atX: i, y: j) } }
+        await store.setArtwork(forCollection: collectionID, from: .data(wide.representation(using: .png, properties: [:])!))
+        await probeScratchingOnce(store: store, collectionID: collectionID, label: " (wide art)")
+        store.removeArtwork(forCollection: collectionID)
+    }
+
+    @MainActor
+    private static func probeScratchingOnce(store: LibraryStore, collectionID: UUID, label: String) async {
         let model = AppModel.shared
         let player = model.player
         player.setVolume(0)
@@ -473,7 +482,7 @@ enum DebugSupport {
             }
             send(.leftMouseUp, points[points.count - 1])
             try? await Task.sleep(for: .seconds(1.2))
-            log("\(scratched ? "PASS" : "FAIL") scratch \(name) (moved \(String(format: "%.2f", player.currentTime - before)) s)")
+            log("\(scratched ? "PASS" : "FAIL") scratch \(name)\(label) (moved \(String(format: "%.2f", player.currentTime - before)) s)")
         }
         // The big record, where it sticks out to the right of the cover
         // (440 pt cover at x 68...508, record centre 74 pt right of the cover's).
@@ -487,79 +496,6 @@ enum DebugSupport {
             return CGPoint(x: 29 + 15 * cos(angle), y: 871 + 15 * sin(angle))
         })
         panel.orderOut(nil)
-
-        // The same, in the real window.
-        guard let window = NSApp.windows.first(where: { KeyboardShortcuts.isMainWindow($0) })
-                ?? NSApp.windows.first(where: { $0.isVisible && $0.styleMask.contains(.titled) }),
-              let content = window.contentView else {
-            log("FAIL no main window: " + NSApp.windows.map { "\(type(of: $0)) \($0.identifier?.rawValue ?? "-") visible=\($0.isVisible)" }.joined(separator: ", "))
-            return
-        }
-        model.selection = .collection(collectionID)
-        try? await Task.sleep(for: .seconds(2.5))
-        guard let disc = bigDiscFrame else {
-            log("FAIL big disc never laid out")
-            return
-        }
-        log("big disc frame \(disc), window content \(content.frame.size)")
-        func dragInWindow(_ name: String, _ points: [CGPoint]) async {
-            func send(_ type: NSEvent.EventType, _ point: CGPoint) {
-                let location = CGPoint(x: point.x, y: content.frame.height - point.y)
-                if let event = NSEvent.mouseEvent(with: type, location: location, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
-                                                  windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) {
-                    window.sendEvent(event)
-                }
-            }
-            if let hit = content.hitTest(CGPoint(x: points[0].x, y: content.frame.height - points[0].y)) {
-                log("hit view at \(points[0]): \(type(of: hit))")
-            }
-            var scratched = false
-            send(.leftMouseDown, points[0])
-            for point in points.dropFirst() {
-                try? await Task.sleep(for: .milliseconds(16))
-                send(.leftMouseDragged, point)
-                scratched = scratched || player.isScratching
-            }
-            send(.leftMouseUp, points[points.count - 1])
-            try? await Task.sleep(for: .seconds(1.5))
-            log("\(scratched ? "PASS" : "FAIL") scratch \(name) in the window")
-        }
-        func describe(_ point: CGPoint) {
-            guard var view = content.hitTest(CGPoint(x: point.x, y: content.frame.height - point.y)) else { return }
-            var chain: [String] = []
-            for _ in 0..<8 {
-                let frame = view.convert(view.bounds, to: nil)
-                chain.append("\(type(of: view)) x\(Int(frame.minX))...\(Int(frame.maxX)) y\(Int(content.frame.height - frame.maxY))...\(Int(content.frame.height - frame.minY))")
-                guard let parent = view.superview else { break }
-                view = parent
-            }
-            log("at \(Int(point.x)),\(Int(point.y)): " + chain.joined(separator: " < "))
-        }
-        describe(CGPoint(x: disc.midX - disc.width * 0.2, y: disc.midY))
-        describe(CGPoint(x: disc.midX + disc.width / 2 * 0.85, y: disc.midY))
-        if let mini = miniDiscFrame {
-            await dragInWindow("mini disc", (0...20).map { step in
-                let angle = Double(step) / 20 * .pi / 2
-                return CGPoint(x: mini.midX + 15 * cos(angle), y: mini.midY + 15 * sin(angle))
-            })
-        }
-        let x = disc.midX + disc.width / 2 * 0.85
-        await dragInWindow("big disc down", (0...20).map { CGPoint(x: x, y: disc.midY - 30 + Double($0) * 4) })
-        await dragInWindow("big disc across", (0...20).map { CGPoint(x: x - 20 + Double($0) * 2, y: disc.midY) })
-
-        // And with cover art.
-        let png = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 64, pixelsHigh: 64, bitsPerSample: 8, samplesPerPixel: 4,
-                                   hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
-        for i in 0..<64 { for j in 0..<64 { png.setColor(NSColor(red: Double(i) / 64, green: 0.3, blue: Double(j) / 64, alpha: 1), atX: i, y: j) } }
-        await store.setArtwork(forCollection: collectionID, from: .data(png.representation(using: .png, properties: [:])!))
-        player.play(collection: collectionID)
-        try? await Task.sleep(for: .seconds(2.5))
-        if let disc = bigDiscFrame {
-            describe(CGPoint(x: disc.midX + disc.width / 2 * 0.85, y: disc.midY))
-            let x = disc.midX + disc.width / 2 * 0.85
-            await dragInWindow("big disc down, with art", (0...20).map { CGPoint(x: x, y: disc.midY - 30 + Double($0) * 4) })
-        }
-        store.removeArtwork(forCollection: collectionID)
         player.stop()
     }
 

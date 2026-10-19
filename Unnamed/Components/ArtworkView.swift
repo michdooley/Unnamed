@@ -17,12 +17,17 @@ struct ArtworkView: View {
         GradientArtwork(seed: seed)
             .overlay {
                 if let image {
+                    // Filling a non-square image spills past the frame. Clipping
+                    // hides that, but the spill would still catch the mouse
+                    // (e.g. over the record next to a cover), so it doesn't take hits.
                     Image(nsImage: image)
                         .resizable()
                         .scaledToFill()
+                        .allowsHitTesting(false)
                 }
             }
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             .task(id: url) {
                 loaded = nil
                 guard let url else { return }

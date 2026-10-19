@@ -194,9 +194,6 @@ private struct CoverArt: View {
                 scratch: isCurrent ? .record(player, secondsPerTurn: 6) : nil,
                 grabbedByEdge: true
             )
-            #if DEBUG
-            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { DebugSupport.bigDiscFrame = $0 }
-            #endif
             .frame(width: size * 0.94, height: size * 0.94)
             .allowsHitTesting(isCurrent)
             .opacity(isCurrent ? 1 : 0)
