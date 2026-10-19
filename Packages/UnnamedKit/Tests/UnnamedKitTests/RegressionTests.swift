@@ -1,0 +1,71 @@
+import Foundation
+import MediaPlayer
+import Testing
+@testable import UnnamedKit
+
+/// Bugs found in review, pinned so they stay fixed.
+@MainActor
+struct RegressionTests {
+    private func makeLibrary(trackCount: Int) async throws -> (LibraryStore, TrackCollection, [UUID]) {
+        let scratch = try TestAudio.temporaryDirectory()
+        let urls = try (1...trackCount).map { try TestAudio.makeWAV(named: "t\($0)", seconds: 0.3, in: scratch) }
+        let store = LibraryStore(root: scratch.appending(path: "Library"))
+        await store.load()
+        let collection = store.createCollection(title: "C")
+        let ids = await store.importAudio(from: urls, into: collection.id)
+        return (store, collection, ids)
+    }
+
+    private func makePlayer(_ store: LibraryStore) -> PlayerController {
+        let defaults = UserDefaults(suiteName: "UnnamedKitTests-\(UUID().uuidString)")!
+        defaults.set(0.0, forKey: "player.volume")
+        let player = PlayerController(defaults: defaults)
+        player.library = store
+        return player
+    }
+
+    @Test func droppingATrackOnItselfKeepsItInPlace() async throws {
+        let (store, collection, ids) = try await makeLibrary(trackCount: 3)
+        store.reorder([ids[0]], in: collection.id, before: ids[0])
+        #expect(store.collections[collection.id]?.trackIDs == ids)
+    }
+
+    @Test func itemsCreatedInTheSameSecondHaveAStableOrder() async throws {
+        let (store, _, _) = try await makeLibrary(trackCount: 3)
+        let first = store.tracksNewestFirst.map(\.id)
+        for _ in 0..<20 {
+            #expect(store.tracksNewestFirst.map(\.id) == first)
+        }
+    }
+
+    @Test func playingATrackOutsideTheGivenListPlaysThatTrack() async throws {
+        let (store, collection, ids) = try await makeLibrary(trackCount: 3)
+        store.removeTracks([ids[2]], from: collection.id)
+        let player = makePlayer(store)
+
+        player.play(trackIDs: store.collections[collection.id]!.trackIDs, startingAt: ids[2], context: collection.id)
+
+        #expect(player.currentTrackID == ids[2])
+        #expect(player.contextCollectionID == nil)
+        player.stop()
+    }
+
+    @Test func nowPlayingArtworkCanBeRenderedOffTheMainThread() async throws {
+        let (store, collection, ids) = try await makeLibrary(trackCount: 1)
+        let png = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")!
+        await store.setArtwork(forCollection: collection.id, from: .data(png))
+        let player = makePlayer(store)
+        player.play(collection: collection.id, startingAt: ids[0])
+
+        let artwork = try #require(MPNowPlayingInfoCenter.default().nowPlayingInfo?[MPMediaItemPropertyArtwork] as? MPMediaItemArtwork)
+        nonisolated(unsafe) let unsafeArtwork = artwork
+        // MediaPlayer asks for the image on a background queue; this used to trap.
+        let rendered = await withCheckedContinuation { continuation in
+            DispatchQueue.global().async {
+                continuation.resume(returning: unsafeArtwork.image(at: CGSize(width: 64, height: 64)) != nil)
+            }
+        }
+        #expect(rendered)
+        player.stop()
+    }
+}

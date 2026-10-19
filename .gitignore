@@ -1,0 +1,20 @@
+# Xcode
+DerivedData/
+build/
+*.xcuserstate
+xcuserdata/
+*.xcscmblueprint
+
+# Swift Package Manager
+.build/
+.swiftpm/
+Packages/*/.build/
+
+# Local signing overrides
+Config/Signing.local.xcconfig
+
+# macOS
+.DS_Store
+
+# Reference material from the app this replaces (not ours to redistribute)
+0 - Reference Screenshots/

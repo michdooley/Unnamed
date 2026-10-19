@@ -1,0 +1,19 @@
+// Signing and identity for local builds.
+//
+// By default the app is signed "to run locally" (no Apple account needed).
+// To sign with your own team, or use your own bundle identifier, create
+// Config/Signing.local.xcconfig (it's git-ignored) with lines like:
+//
+//   DEVELOPMENT_TEAM = ABCDE12345
+//   CODE_SIGN_IDENTITY = Apple Development
+//   PRODUCT_BUNDLE_IDENTIFIER = com.example.Unnamed
+//
+// Signing with a team keeps the app's identity stable between builds, which
+// lets macOS keep remembering the library folder you picked.
+
+PRODUCT_BUNDLE_IDENTIFIER = com.michaeldooley.Unnamed
+CODE_SIGN_STYLE = Automatic
+CODE_SIGN_IDENTITY = -
+DEVELOPMENT_TEAM =
+
+#include? "Signing.local.xcconfig"
