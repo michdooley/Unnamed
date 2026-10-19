@@ -10,11 +10,16 @@ struct HomeView: View {
         GeometryReader { geo in
             ScrollView {
                 Group {
-                    if model.orderedCollections.isEmpty {
+                    let folders = store.subfolders(of: nil)
+                    let collections = model.orderedCollections(in: nil)
+                    if folders.isEmpty && collections.isEmpty {
                         EmptyHome()
                     } else {
                         CenteredFlowLayout(spacing: 48, rowSpacing: 44) {
-                            ForEach(model.orderedCollections) { collection in
+                            ForEach(folders) { folder in
+                                FolderCard(store: store, folder: folder)
+                            }
+                            ForEach(collections) { collection in
                                 CollectionCard(store: store, collection: collection)
                             }
                         }
@@ -32,9 +37,11 @@ struct HomeView: View {
         }
     }
 
-    /// Dropped folders become collections; loose files go to All Tracks.
+    /// Items dragged in from elsewhere move to the top level. Dropped Finder
+    /// folders become collections; loose files go to All Tracks.
     private func importDrop(_ providers: [NSItemProvider]) async {
         let payload = await DropPayload.load(from: providers, expandingFolders: false)
+        model.move(payload.items, toFolder: nil)
         var loose: [URL] = []
         for url in payload.fileURLs {
             if (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
@@ -126,6 +133,7 @@ struct CollectionCard: View {
         .onTapGesture { model.selection = .collection(collection.id) }
         .onHover { hovering = $0 }
         .animation(.easeOut(duration: 0.18), value: hovering)
+        .onDrag { NSItemProvider.forItem(.collection(collection.id), title: collection.title) }
         .contextMenu { CollectionMenuItems(collectionID: collection.id) }
         .onDrop(of: DropPayload.acceptedTypes, isTargeted: $isTargeted) { providers in
             Task {

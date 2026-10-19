@@ -18,6 +18,7 @@ public struct PendingImport: Identifiable, Hashable, Sendable {
     public let id: UUID
     public let title: String
     public let collectionID: UUID?
+    public let folderID: UUID?
 }
 
 /// The in-memory view of a library folder, and the only way the app changes it.
@@ -33,12 +34,14 @@ public final class LibraryStore {
     /// Whether the library folder lives in iCloud Drive.
     public let isInCloud: Bool
 
-    public private(set) var tracks: [UUID: Track] = [:]
-    public private(set) var collections: [UUID: TrackCollection] = [:]
+    public internal(set) var tracks: [UUID: Track] = [:]
+    public internal(set) var collections: [UUID: TrackCollection] = [:]
+    public internal(set) var folders: [UUID: LibraryFolder] = [:]
     public private(set) var notes: [UUID: String] = [:]
     public private(set) var comments: [UUID: [TrackComment]] = [:]
-    public private(set) var peaks: [UUID: [UInt8]] = [:]
-    public private(set) var cloudStatus: [UUID: CloudStatus] = [:]
+    /// Waveform overviews, per version.
+    public internal(set) var peaks: [VersionKey: [UInt8]] = [:]
+    public internal(set) var cloudStatus: [UUID: CloudStatus] = [:]
     public private(set) var pendingImports: [PendingImport] = []
     public private(set) var isLoaded = false
     /// The most recent problem from a background operation. The UI shows and clears it.
@@ -51,7 +54,7 @@ public final class LibraryStore {
         var done: (@Sendable () -> Void)?
     }
 
-    @ObservationIgnored private let disk: LibraryDisk
+    @ObservationIgnored let disk: LibraryDisk
     @ObservationIgnored private let writes: AsyncStream<WriteJob>.Continuation
     @ObservationIgnored private var writerTask: Task<Void, Never>?
     @ObservationIgnored private var pendingWriteCount = 0
@@ -183,6 +186,7 @@ public final class LibraryStore {
     private func apply(_ snapshot: LibrarySnapshot) {
         if tracks != snapshot.tracks { tracks = snapshot.tracks }
         if collections != snapshot.collections { collections = snapshot.collections }
+        if folders != snapshot.folders { folders = snapshot.folders }
         if notes != snapshot.notes { notes = snapshot.notes }
         if comments != snapshot.comments { comments = snapshot.comments }
         if peaks != snapshot.peaks { peaks = snapshot.peaks }
@@ -228,8 +232,15 @@ public final class LibraryStore {
         tracks(in: collectionID).reduce(0) { $0 + $1.duration }
     }
 
-    public func audioURL(for trackID: UUID) -> URL? {
-        tracks[trackID].flatMap(layout.audioURL(for:))
+    /// The audio of a version (the current one when `version` is nil).
+    public func audioURL(for trackID: UUID, version: UUID? = nil) -> URL? {
+        tracks[trackID].flatMap { layout.audioURL(for: $0, version: version) }
+    }
+
+    /// The waveform of a version (the current one when `version` is nil).
+    public func peaks(for trackID: UUID, version: UUID? = nil) -> [UInt8] {
+        guard let id = tracks[trackID]?.version(version)?.id else { return [] }
+        return peaks[VersionKey(track: trackID, version: id)] ?? []
     }
 
     public func artworkURL(forTrack trackID: UUID) -> URL? {
@@ -243,8 +254,12 @@ public final class LibraryStore {
     // MARK: - Collections
 
     @discardableResult
-    public func createCollection(title: String, trackIDs: [UUID] = []) -> TrackCollection {
-        let collection = TrackCollection(title: Self.cleanTitle(title, fallback: "Untitled Collection"), trackIDs: trackIDs)
+    public func createCollection(title: String, trackIDs: [UUID] = [], in folderID: UUID? = nil) -> TrackCollection {
+        let collection = TrackCollection(
+            title: Self.cleanTitle(title, fallback: "Untitled Collection"),
+            trackIDs: trackIDs,
+            folderID: folderID.flatMap { folders[$0] != nil ? $0 : nil }
+        )
         collections[collection.id] = collection
         save(collection)
         return collection
@@ -305,7 +320,7 @@ public final class LibraryStore {
         updateCollection(collectionID) { $0.trackIDs = trackIDs }
     }
 
-    private func updateCollection(_ id: UUID, _ change: (inout TrackCollection) -> Void) {
+    func updateCollection(_ id: UUID, _ change: (inout TrackCollection) -> Void) {
         guard var collection = collections[id] else { return }
         let before = collection
         change(&collection)
@@ -315,26 +330,27 @@ public final class LibraryStore {
         save(collection)
     }
 
-    private func save(_ collection: TrackCollection) {
+    func save(_ collection: TrackCollection) {
         let url = layout.collectionFile(collection.id)
         enqueue { disk in try await disk.writeJSON(collection, to: url) }
     }
 
     // MARK: - Tracks
 
-    /// Copies audio files into the library. Files that aren't audio are skipped.
+    /// Copies audio files into the library, optionally into a collection
+    /// and/or directly into a folder. Files that aren't audio are skipped.
     @discardableResult
-    public func importAudio(from urls: [URL], into collectionID: UUID? = nil, at index: Int? = nil) async -> [UUID] {
+    public func importAudio(from urls: [URL], into collectionID: UUID? = nil, at index: Int? = nil, folder folderID: UUID? = nil) async -> [UUID] {
         let audioURLs = urls.filter(AudioAnalyzer.isAudioFile)
         let items = audioURLs.map {
-            PendingImport(id: UUID(), title: $0.deletingPathExtension().lastPathComponent, collectionID: collectionID)
+            PendingImport(id: UUID(), title: $0.deletingPathExtension().lastPathComponent, collectionID: collectionID, folderID: folderID)
         }
         pendingImports.append(contentsOf: items)
         var imported: [UUID] = []
         var position = index
         for (url, item) in zip(audioURLs, items) {
             do {
-                let track = try await importOne(url: url, id: item.id, title: item.title)
+                let track = try await importOne(url: url, id: item.id, title: item.title, folderID: folderID)
                 imported.append(track.id)
                 if let collectionID {
                     addTracks([track.id], to: collectionID, at: position)
@@ -348,7 +364,7 @@ public final class LibraryStore {
         return imported
     }
 
-    private func importOne(url: URL, id: UUID, title: String) async throws -> Track {
+    private func importOne(url: URL, id: UUID, title: String, folderID: UUID?) async throws -> Track {
         let accessing = url.startAccessingSecurityScopedResource()
         defer { if accessing { url.stopAccessingSecurityScopedResource() } }
 
@@ -360,44 +376,15 @@ public final class LibraryStore {
             title: Self.cleanTitle(title, fallback: "Untitled"),
             audioFileName: fileName,
             originalFileName: url.lastPathComponent,
-            duration: analysis?.duration ?? 0
+            duration: analysis?.duration ?? 0,
+            folderID: folderID.flatMap { folders[$0] != nil ? $0 : nil }
         )
         tracks[id] = track
         cloudStatus[id] = isInCloud ? .uploading : .local
         save(track)
-        if let analysis { savePeaks(analysis.peaks, for: id) }
+        saveVersions(of: track)
+        if let analysis { savePeaks(analysis.peaks, for: VersionKey(track: id, version: id)) }
         return track
-    }
-
-    /// Swaps a track's audio for a new file, keeping its notes, comments and collections.
-    public func replaceAudio(of trackID: UUID, with url: URL) async {
-        guard let old = tracks[trackID] else { return }
-        let accessing = url.startAccessingSecurityScopedResource()
-        defer { if accessing { url.stopAccessingSecurityScopedResource() } }
-        do {
-            let fileName = try await disk.importAudio(from: url, trackID: trackID)
-            let newURL = layout.trackDir(trackID).appending(path: fileName, directoryHint: .notDirectory)
-            let analysis = try? await AudioAnalyzer.analyze(url: newURL)
-            guard tracks[trackID] != nil else { return }
-            if let oldURL = layout.audioURL(for: old), old.audioFileName != fileName {
-                enqueue { disk in try await disk.remove(oldURL) }
-            }
-            updateTrack(trackID) {
-                $0.audioFileName = fileName
-                $0.originalFileName = url.lastPathComponent
-                $0.duration = analysis?.duration ?? 0
-            }
-            cloudStatus[trackID] = isInCloud ? .uploading : .local
-            if let analysis {
-                savePeaks(analysis.peaks, for: trackID)
-            } else {
-                peaks[trackID] = nil
-                let waveform = layout.waveformFile(trackID)
-                enqueue { disk in try await disk.remove(waveform) }
-            }
-        } catch {
-            report(error, title: "Couldn't replace the audio")
-        }
     }
 
     public func updateTrack(_ id: UUID, _ change: (inout Track) -> Void) {
@@ -439,7 +426,9 @@ public final class LibraryStore {
         tracks[newID] = copy
         notes[newID] = notes[id]
         comments[newID] = comments[id]
-        peaks[newID] = peaks[id]
+        for version in copy.versions {
+            peaks[VersionKey(track: newID, version: version.id)] = peaks[VersionKey(track: id, version: version.id)]
+        }
         cloudStatus[newID] = isInCloud ? .uploading : .local
         save(copy)
         if let collectionID, let index = collections[collectionID]?.trackIDs.firstIndex(of: id) {
@@ -450,11 +439,11 @@ public final class LibraryStore {
 
     /// Deletes a track everywhere: from every collection, and its folder goes to the Trash.
     public func deleteTrack(_ id: UUID) {
-        guard tracks.removeValue(forKey: id) != nil else { return }
+        guard let track = tracks.removeValue(forKey: id) else { return }
         notesSaveTasks.removeValue(forKey: id)?.cancel()
         notes[id] = nil
         comments[id] = nil
-        peaks[id] = nil
+        for version in track.versions { peaks[VersionKey(track: id, version: version.id)] = nil }
         cloudStatus[id] = nil
         for collection in collections.values where collection.trackIDs.contains(id) {
             updateCollection(collection.id) { $0.trackIDs.removeAll { $0 == id } }
@@ -463,15 +452,27 @@ public final class LibraryStore {
         enqueue { disk in try await disk.trash(dir) }
     }
 
-    private func save(_ track: Track) {
+    func save(_ track: Track) {
         let url = layout.trackFile(track.id)
         enqueue { disk in try await disk.writeJSON(track, to: url) }
     }
 
-    private func savePeaks(_ values: [UInt8], for id: UUID) {
-        guard tracks[id] != nil else { return }
-        peaks[id] = values
-        let url = layout.waveformFile(id)
+    /// Writes any version files that don't exist yet.
+    func saveVersions(of track: Track) {
+        let versions = track.versions
+        let trackID = track.id
+        enqueue { disk in try await disk.writeMissingVersionFiles(versions, trackID: trackID) }
+    }
+
+    func save(_ version: TrackVersion, of trackID: UUID) {
+        let url = layout.versionFile(trackID: trackID, versionID: version.id)
+        enqueue { disk in try await disk.writeJSON(version, to: url) }
+    }
+
+    func savePeaks(_ values: [UInt8], for key: VersionKey) {
+        guard tracks[key.track] != nil else { return }
+        peaks[key] = values
+        let url = layout.waveformFile(trackID: key.track, versionID: key.version)
         enqueue { disk in try await disk.writeJSON(WaveformFile(peaks: values), to: url) }
     }
 
@@ -516,11 +517,21 @@ public final class LibraryStore {
 
     // MARK: - Comments
 
+    /// Comments on one version (the current one when `version` is nil).
+    /// Comments made before versions existed belong to the first version.
+    public func comments(for trackID: UUID, version: UUID?) -> [TrackComment] {
+        guard let track = tracks[trackID], let shown = track.version(version)?.id else { return [] }
+        let first = track.versions.first?.id
+        return (comments[trackID] ?? []).filter { ($0.versionID ?? first) == shown }
+    }
+
+    /// Adds a comment to a version (the current one when `version` is nil).
+    /// Returns nil if that version no longer exists.
     @discardableResult
-    public func addComment(to trackID: UUID, at timestamp: TimeInterval, text: String, author: String? = nil) -> TrackComment? {
+    public func addComment(to trackID: UUID, at timestamp: TimeInterval, text: String, author: String? = nil, version: UUID? = nil) -> TrackComment? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, tracks[trackID] != nil else { return nil }
-        let comment = TrackComment(timestamp: max(0, timestamp), text: trimmed, author: author)
+        guard !trimmed.isEmpty, let track = tracks[trackID], track.version(version) != nil else { return nil }
+        let comment = TrackComment(timestamp: max(0, timestamp), text: trimmed, author: author, versionID: track.version(version)?.id)
         var list = comments[trackID] ?? []
         list.append(comment)
         list.sort(by: TrackComment.playbackOrder)
@@ -640,16 +651,18 @@ public final class LibraryStore {
         }
     }
 
-    /// Returns a playable local URL, downloading from iCloud first if needed.
-    public func ensureDownloaded(_ trackID: UUID, timeout: Duration = .seconds(600)) async throws -> URL {
-        guard let url = audioURL(for: trackID) else { throw CocoaError(.fileNoSuchFile) }
+    /// Returns a playable local URL for a version (the current one when
+    /// `version` is nil), downloading from iCloud first if needed.
+    public func ensureDownloaded(_ trackID: UUID, version: UUID? = nil, timeout: Duration = .seconds(600)) async throws -> URL {
+        guard let url = audioURL(for: trackID, version: version) else { throw CocoaError(.fileNoSuchFile) }
+        let tracksStatus = version == nil || version == tracks[trackID]?.currentVersionID
         var status = await disk.cloudStatus(of: url)
         if status.isPlayableWithoutDownload { return url }
         guard isInCloud else { throw CocoaError(.fileNoSuchFile) }
         if status != .missing {
             try await disk.startDownloading(url)
         }
-        cloudStatus[trackID] = .downloading
+        if tracksStatus { cloudStatus[trackID] = .downloading }
         let deadline = ContinuousClock.now + timeout
         while ContinuousClock.now < deadline {
             try await Task.sleep(for: .milliseconds(400))
@@ -658,15 +671,15 @@ public final class LibraryStore {
                 try? await disk.startDownloading(url)
             }
             if status.isPlayableWithoutDownload {
-                cloudStatus[trackID] = status
+                if tracksStatus { cloudStatus[trackID] = status }
                 return url
             }
         }
         throw CocoaError(.fileReadUnknown)
     }
 
-    public func exportAudio(of trackID: UUID, to destination: URL) async throws {
-        let source = try await ensureDownloaded(trackID)
+    public func exportAudio(of trackID: UUID, version: UUID? = nil, to destination: URL) async throws {
+        let source = try await ensureDownloaded(trackID, version: version)
         try await disk.export(source, to: destination)
     }
 
@@ -689,7 +702,7 @@ public final class LibraryStore {
 
     // MARK: - Plumbing
 
-    private func enqueue(_ run: @escaping @Sendable (LibraryDisk) async throws -> Void) {
+    func enqueue(_ run: @escaping @Sendable (LibraryDisk) async throws -> Void) {
         mutationGeneration += 1
         pendingWriteCount += 1
         writes.yield(WriteJob(run: run))
@@ -702,7 +715,7 @@ public final class LibraryStore {
         }
     }
 
-    private func report(_ error: any Error, title: String) {
+    func report(_ error: any Error, title: String) {
         issue = LibraryIssue(title: title, message: error.localizedDescription)
     }
 

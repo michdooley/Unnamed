@@ -4,9 +4,10 @@ import Foundation
 struct LibrarySnapshot: Sendable, Equatable {
     var tracks: [UUID: Track] = [:]
     var collections: [UUID: TrackCollection] = [:]
+    var folders: [UUID: LibraryFolder] = [:]
     var notes: [UUID: String] = [:]
     var comments: [UUID: [TrackComment]] = [:]
-    var peaks: [UUID: [UInt8]] = [:]
+    var peaks: [VersionKey: [UInt8]] = [:]
     var cloudStatus: [UUID: CloudStatus] = [:]
 }
 
@@ -37,6 +38,7 @@ actor LibraryDisk {
         let fm = FileManager.default
         try fm.createDirectory(at: layout.collectionsDir, withIntermediateDirectories: true)
         try fm.createDirectory(at: layout.tracksDir, withIntermediateDirectories: true)
+        try fm.createDirectory(at: layout.foldersDir, withIntermediateDirectories: true)
         if !fm.fileExists(atPath: layout.manifestFile.path) {
             try writeJSON(LibraryManifest(), to: layout.manifestFile)
         }
@@ -62,12 +64,41 @@ actor LibraryDisk {
             snapshot.collections[id] = collection
         }
 
+        for dir in Self.subdirectories(of: layout.foldersDir) {
+            guard let id = UUID(uuidString: dir.lastPathComponent) else { continue }
+            let file = layout.folderFile(id)
+            seen.insert(file)
+            guard var folder = cachedJSON(LibraryFolder.self, at: file) else { continue }
+            folder.id = id
+            snapshot.folders[id] = folder
+        }
+
         for dir in Self.subdirectories(of: layout.tracksDir) {
             guard let id = UUID(uuidString: dir.lastPathComponent) else { continue }
             let file = layout.trackFile(id)
             seen.insert(file)
             guard var track = cachedJSON(Track.self, at: file) else { continue }
+            let declaredID = track.id
             track.id = id
+
+            var versions: [TrackVersion] = []
+            for url in Self.files(in: layout.versionsDir(id)) where url.pathExtension == "json" {
+                guard let versionID = UUID(uuidString: url.deletingPathExtension().lastPathComponent) else { continue }
+                seen.insert(url)
+                guard var version = cachedJSON(TrackVersion.self, at: url) else { continue }
+                version.id = versionID
+                versions.append(version)
+            }
+            if !versions.isEmpty {
+                track.versions = versions.sorted(by: TrackVersion.order)
+            } else if track.versions.count == 1, track.versions[0].id == declaredID {
+                // Format 1: the single version takes the folder's ID, which is
+                // stable even if track.json's `id` is missing or wrong.
+                track.versions[0].id = id
+            }
+            if !track.versions.contains(where: { $0.id == track.currentVersionID }) {
+                track.currentVersionID = track.versions.last?.id
+            }
             snapshot.tracks[id] = track
 
             let notesURL = layout.notesFile(id)
@@ -76,10 +107,18 @@ actor LibraryDisk {
                 snapshot.notes[id] = text
             }
 
-            let waveformURL = layout.waveformFile(id)
-            seen.insert(waveformURL)
-            if let waveform = cachedJSON(WaveformFile.self, at: waveformURL) {
-                snapshot.peaks[id] = waveform.peaks
+            for (index, version) in track.versions.enumerated() {
+                let url = layout.waveformFile(trackID: id, versionID: version.id)
+                seen.insert(url)
+                var waveform = cachedJSON(WaveformFile.self, at: url)
+                if waveform == nil, index == 0 {
+                    let legacy = layout.legacyWaveformFile(id)
+                    seen.insert(legacy)
+                    waveform = cachedJSON(WaveformFile.self, at: legacy)
+                }
+                if let waveform {
+                    snapshot.peaks[VersionKey(track: id, version: version.id)] = waveform.peaks
+                }
             }
 
             var comments: [TrackComment] = []
@@ -142,6 +181,17 @@ actor LibraryDisk {
         try Self.coordinatedWrite(data, to: url)
     }
 
+    /// Writes a version file for each version that doesn't have one yet
+    /// (format-1 tracks get theirs when their second version arrives).
+    func writeMissingVersionFiles(_ versions: [TrackVersion], trackID: UUID) throws {
+        for version in versions {
+            let url = layout.versionFile(trackID: trackID, versionID: version.id)
+            if !FileManager.default.fileExists(atPath: url.path) {
+                try writeJSON(version, to: url)
+            }
+        }
+    }
+
     /// Removes a single small file (comment, notes, old artwork).
     func remove(_ url: URL) throws {
         guard FileManager.default.fileExists(atPath: url.path) else { return }
@@ -189,6 +239,8 @@ actor LibraryDisk {
     }
 
     func copyTrackFolder(from sourceID: UUID, to destinationID: UUID) throws {
+        // (Versions, waveforms and comments come along; their IDs are only
+        // unique within a track, so they can stay as they are.)
         let source = layout.trackDir(sourceID)
         let destination = layout.trackDir(destinationID)
         var coordinationError: NSError?
@@ -335,15 +387,19 @@ actor LibraryDisk {
 
       Tracks/<id>/                 one folder per idea
         <name>.wav / .mp3 / ...    the audio, exactly as you imported it
-        track.json                 title, dates, duration, BPM, key
+                                   (every version you've uploaded is kept)
+        track.json                 title, current version, dates, BPM, key
+        Versions/<id>.json         one file per uploaded version
         notes.md                   your notes
         Comments/<id>.json         timestamped comments
-        waveform.json              the waveform overview
+        Waveforms/<version>.json   waveform overviews
         artwork-*.jpg              artwork, if set
 
       Collections/<id>/            one folder per collection (album, mixtape...)
         collection.json            title and the ordered list of track ids
         artwork-*.jpg              cover art, if set
+
+      Folders/<id>/folder.json     folders for organising collections and tracks
 
     You can back this folder up, move it, or open it from another device.
     Please don't rename the <id> folders; that's how tracks are linked to collections.

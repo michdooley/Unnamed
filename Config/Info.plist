@@ -21,9 +21,9 @@
 	<array>
 		<dict>
 			<key>UTTypeIdentifier</key>
-			<string>com.michaeldooley.unnamed.track-reference</string>
+			<string>com.michaeldooley.unnamed.item-reference</string>
 			<key>UTTypeDescription</key>
-			<string>Unnamed Track</string>
+			<string>Unnamed Library Item</string>
 			<key>UTTypeConformsTo</key>
 			<array>
 				<string>public.data</string>

@@ -100,6 +100,14 @@ struct TrackRow: View {
     private var details: some View {
         HStack(spacing: 8) {
             Text(Format.date(track.createdAt))
+            if track.versions.count > 1, let current = track.currentVersionID {
+                Text(track.versionLabel(of: current).components(separatedBy: " · ")[0])
+                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 1)
+                    .background(Capsule().fill(Color.primary.opacity(0.08)))
+                    .help("\(track.versions.count) versions — playing \(track.versionLabel(of: current))")
+            }
             if let count = store.comments[track.id]?.count, count > 0 {
                 Label("\(count)", systemImage: "bubble.left")
                     .labelStyle(CompactLabelStyle())
@@ -197,6 +205,9 @@ struct TrackMenuItems: View {
         Button("Comments…") { model.showDetails(for: trackID, in: collectionID, pane: .comments) }
         Button("Edit Track…") { model.showDetails(for: trackID, in: collectionID, pane: .edit) }
         Divider()
+        Button("Upload New Version…") { model.uploadNewVersion(of: trackID) }
+        Button("Version History…") { model.showDetails(for: trackID, in: collectionID, pane: .versions) }
+        Divider()
         Menu("Add to Collection") {
             ForEach(model.orderedCollections) { collection in
                 Button(collection.title) { store?.addTracks([trackID], to: collection.id) }
@@ -211,6 +222,9 @@ struct TrackMenuItems: View {
                     Button(collection.title) { store?.moveTracks([trackID], from: collectionID, to: collection.id) }
                 }
             }
+        }
+        FolderPickerMenu(title: "Move to Folder", current: store?.folder(ofTrack: trackID)) {
+            model.move([.track(trackID)], toFolder: $0)
         }
         Button("Duplicate") { model.duplicate(trackID: trackID, in: collectionID) }
         Divider()

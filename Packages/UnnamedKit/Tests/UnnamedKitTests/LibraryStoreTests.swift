@@ -33,7 +33,7 @@ struct LibraryStoreTests {
         let track = try #require(store.tracks[trackID])
         #expect(track.title == "2023-08-15 atmos")
         #expect(abs(track.duration - 1.5) < 0.01)
-        #expect(store.peaks[trackID]?.count == AudioAnalyzer.defaultPeakCount)
+        #expect(store.peaks(for: trackID).count == AudioAnalyzer.defaultPeakCount)
         #expect(store.collections[collection.id]?.trackIDs == [trackID])
         #expect(store.cloudStatus[trackID] == .local)
         #expect(store.pendingImports.isEmpty)
@@ -57,7 +57,7 @@ struct LibraryStoreTests {
         #expect(reopened.collections == store.collections)
         #expect(reopened.notes[trackID] == "needs a bridge")
         #expect(reopened.comments[trackID] == [comment])
-        #expect(reopened.peaks[trackID] == store.peaks[trackID])
+        #expect(reopened.peaks(for: trackID) == store.peaks(for: trackID))
         #expect(reopened.tracks[trackID]?.title == "atmos v2")
         #expect(reopened.tracks[trackID]?.bpm == 128)
     }

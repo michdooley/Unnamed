@@ -4,24 +4,55 @@ import UniformTypeIdentifiers
 import UnnamedKit
 
 extension UTType {
-    /// A track dragged within the app. Declared in Info.plist.
-    nonisolated static let unnamedTrack = UTType(exportedAs: "com.michaeldooley.unnamed.track-reference")
+    /// A track, collection or folder dragged within the app. Declared in Info.plist.
+    nonisolated static let unnamedItem = UTType(exportedAs: "com.michaeldooley.unnamed.item-reference")
 }
 
-/// What was dropped: tracks dragged from inside the app, or files from Finder.
+/// Something in the library that can be dragged around inside the app.
+enum LibraryItemRef: Hashable, Sendable {
+    case track(UUID)
+    case collection(UUID)
+    case folder(UUID)
+
+    /// "track:<uuid>" etc.
+    nonisolated var encoded: String {
+        switch self {
+        case .track(let id): "track:\(id.uuidString)"
+        case .collection(let id): "collection:\(id.uuidString)"
+        case .folder(let id): "folder:\(id.uuidString)"
+        }
+    }
+
+    nonisolated init?(encoded: String) {
+        let parts = encoded.split(separator: ":", maxSplits: 1).map(String.init)
+        guard parts.count == 2, let id = UUID(uuidString: parts[1]) else { return nil }
+        switch parts[0] {
+        case "track": self = .track(id)
+        case "collection": self = .collection(id)
+        case "folder": self = .folder(id)
+        default: return nil
+        }
+    }
+}
+
+/// What was dropped: items dragged from inside the app, or files from Finder.
 struct DropPayload {
-    var trackIDs: [UUID] = []
+    var items: [LibraryItemRef] = []
     var fileURLs: [URL] = []
 
-    static let acceptedTypes: [UTType] = [.unnamedTrack, .fileURL]
+    var trackIDs: [UUID] {
+        items.compactMap { if case .track(let id) = $0 { id } else { nil } }
+    }
 
-    /// Reads a drop. Tracks win over files, because dragging a track inside
-    /// the app also offers its audio file (so it can be dropped in Finder).
+    static let acceptedTypes: [UTType] = [.unnamedItem, .fileURL]
+
+    /// Reads a drop. In-app items win over files, because dragging a track
+    /// also offers its audio file (so it can be dropped in Finder).
     static func load(from providers: [NSItemProvider], expandingFolders: Bool = true) async -> DropPayload {
         var payload = DropPayload()
         for provider in providers {
-            if provider.hasItemConformingToTypeIdentifier(UTType.unnamedTrack.identifier) {
-                if let id = await loadTrackID(provider) { payload.trackIDs.append(id) }
+            if provider.hasItemConformingToTypeIdentifier(UTType.unnamedItem.identifier) {
+                if let item = await loadItem(provider) { payload.items.append(item) }
             } else if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
                 if let url = await loadFileURL(provider) { payload.fileURLs.append(url) }
             }
@@ -56,10 +87,10 @@ struct DropPayload {
 
     // NSItemProvider calls back on background queues, so these loaders are
     // nonisolated (app code is main-actor by default).
-    nonisolated private static func loadTrackID(_ provider: NSItemProvider) async -> UUID? {
+    nonisolated private static func loadItem(_ provider: NSItemProvider) async -> LibraryItemRef? {
         await withCheckedContinuation { continuation in
-            provider.loadDataRepresentation(forTypeIdentifier: UTType.unnamedTrack.identifier) { data, _ in
-                continuation.resume(returning: data.flatMap { UUID(uuidString: String(decoding: $0, as: UTF8.self)) })
+            provider.loadDataRepresentation(forTypeIdentifier: UTType.unnamedItem.identifier) { data, _ in
+                continuation.resume(returning: data.flatMap { LibraryItemRef(encoded: String(decoding: $0, as: UTF8.self)) })
             }
         }
     }
@@ -89,11 +120,24 @@ extension NSItemProvider {
     nonisolated static func forTrack(_ trackID: UUID, audioURL: URL?, title: String) -> NSItemProvider {
         let provider = audioURL.flatMap { NSItemProvider(contentsOf: $0) } ?? NSItemProvider()
         provider.suggestedName = title
-        provider.registerDataRepresentation(forTypeIdentifier: UTType.unnamedTrack.identifier, visibility: .ownProcess) { completion in
-            completion(Data(trackID.uuidString.utf8), nil)
+        provider.register(.track(trackID))
+        return provider
+    }
+
+    /// Drag source for a collection or folder (in-app only).
+    nonisolated static func forItem(_ item: LibraryItemRef, title: String) -> NSItemProvider {
+        let provider = NSItemProvider()
+        provider.suggestedName = title
+        provider.register(item)
+        return provider
+    }
+
+    nonisolated private func register(_ item: LibraryItemRef) {
+        let data = Data(item.encoded.utf8)
+        registerDataRepresentation(forTypeIdentifier: UTType.unnamedItem.identifier, visibility: .ownProcess) { completion in
+            completion(data, nil)
             return nil
         }
-        return provider
     }
 }
 

@@ -4,6 +4,7 @@ import Foundation
 enum TestAudio {
     /// Writes a sine-wave WAV whose loudness ramps up, so peaks are predictable.
     static func makeWAV(named name: String = "idea", seconds: Double = 2, in directory: URL) throws -> URL {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let url = directory.appending(path: "\(name).wav")
         let sampleRate = 44_100.0
         let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 2)!

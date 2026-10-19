@@ -5,9 +5,10 @@ import Foundation
 /// ```
 /// <Library>/
 ///   library.json
+///   Folders/<uuid>/folder.json
 ///   Collections/<uuid>/collection.json, artwork-*.jpg
-///   Tracks/<uuid>/track.json, <audio file>, artwork-*.jpg,
-///                 waveform.json, notes.md, Comments/<uuid>.json
+///   Tracks/<uuid>/track.json, <audio files>, artwork-*.jpg, notes.md,
+///                 Versions/<uuid>.json, Waveforms/<version>.json, Comments/<uuid>.json
 /// ```
 public struct LibraryLayout: Sendable, Hashable {
     public let root: URL
@@ -20,6 +21,15 @@ public struct LibraryLayout: Sendable, Hashable {
     var readmeFile: URL { root.appending(path: "README.txt", directoryHint: .notDirectory) }
     var collectionsDir: URL { root.appending(path: "Collections", directoryHint: .isDirectory) }
     var tracksDir: URL { root.appending(path: "Tracks", directoryHint: .isDirectory) }
+    var foldersDir: URL { root.appending(path: "Folders", directoryHint: .isDirectory) }
+
+    func folderDir(_ id: UUID) -> URL {
+        foldersDir.appending(path: id.uuidString, directoryHint: .isDirectory)
+    }
+
+    func folderFile(_ id: UUID) -> URL {
+        folderDir(id).appending(path: "folder.json", directoryHint: .notDirectory)
+    }
 
     func collectionDir(_ id: UUID) -> URL {
         collectionsDir.appending(path: id.uuidString, directoryHint: .isDirectory)
@@ -41,8 +51,25 @@ public struct LibraryLayout: Sendable, Hashable {
         trackDir(id).appending(path: "notes.md", directoryHint: .notDirectory)
     }
 
-    func waveformFile(_ id: UUID) -> URL {
+    /// Format 1's single waveform; still read as the first version's.
+    func legacyWaveformFile(_ id: UUID) -> URL {
         trackDir(id).appending(path: "waveform.json", directoryHint: .notDirectory)
+    }
+
+    func versionsDir(_ trackID: UUID) -> URL {
+        trackDir(trackID).appending(path: "Versions", directoryHint: .isDirectory)
+    }
+
+    func versionFile(trackID: UUID, versionID: UUID) -> URL {
+        versionsDir(trackID).appending(path: "\(versionID.uuidString).json", directoryHint: .notDirectory)
+    }
+
+    func waveformsDir(_ trackID: UUID) -> URL {
+        trackDir(trackID).appending(path: "Waveforms", directoryHint: .isDirectory)
+    }
+
+    func waveformFile(trackID: UUID, versionID: UUID) -> URL {
+        waveformsDir(trackID).appending(path: "\(versionID.uuidString).json", directoryHint: .notDirectory)
     }
 
     func commentsDir(_ trackID: UUID) -> URL {
@@ -53,8 +80,9 @@ public struct LibraryLayout: Sendable, Hashable {
         commentsDir(trackID).appending(path: "\(commentID.uuidString).json", directoryHint: .notDirectory)
     }
 
-    public func audioURL(for track: Track) -> URL? {
-        track.audioFileName.map { trackDir(track.id).appending(path: $0, directoryHint: .notDirectory) }
+    /// The audio of a version (the current one when `versionID` is nil).
+    public func audioURL(for track: Track, version versionID: UUID? = nil) -> URL? {
+        track.version(versionID).map { trackDir(track.id).appending(path: $0.audioFileName, directoryHint: .notDirectory) }
     }
 
     public func artworkURL(for track: Track) -> URL? {

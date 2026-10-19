@@ -2,7 +2,7 @@ import SwiftUI
 import UnnamedKit
 
 /// The track modal: a summary with the disc and waveform on the left,
-/// actions (and the Notes / Comments / Edit panes) on the right.
+/// actions (and the Notes / Comments / Versions / Edit panes) on the right.
 struct TrackDetailsSheet: View {
     @Environment(AppModel.self) private var model
     @Environment(PlayerController.self) private var player
@@ -96,8 +96,10 @@ struct TrackDetailsSheet: View {
         case .notes: "Notes"
         case .comments: "Comments"
         case .edit: "Edit track"
+        case .versions: "Versions"
         case .addToCollection: "Add to collection"
         case .moveToCollection: "Move to"
+        case .folder: "Folder"
         }
     }
 
@@ -112,6 +114,10 @@ struct TrackDetailsSheet: View {
             CommentsPane(store: store, trackID: trackID, collectionID: collectionID)
         case .edit:
             EditTrackPane(store: store, track: track)
+        case .versions:
+            VersionsPane(store: store, track: track, collectionID: collectionID)
+        case .folder:
+            FolderChooserPane(store: store, trackID: trackID)
         case .addToCollection:
             CollectionChooserPane(store: store, trackID: trackID, mode: .add)
         case .moveToCollection:
@@ -125,11 +131,21 @@ struct TrackDetailsSheet: View {
         let commentCount = store.comments[trackID]?.count ?? 0
         let status = store.cloudStatus[trackID]
         let audioURL = store.audioURL(for: trackID)
+        let folderTitle = store.folder(ofTrack: trackID).flatMap { store.folders[$0]?.title }
         return ScrollView {
             VStack(spacing: 16) {
                 ActionGroup {
-                    ActionRow(title: "Replace audio", systemImage: "waveform.badge.plus") {
-                        model.replaceAudio(of: trackID)
+                    ActionRow(title: "Upload new version", systemImage: "waveform.badge.plus") {
+                        model.uploadNewVersion(of: trackID)
+                    }
+                    RowDivider()
+                    ActionRow(
+                        title: "Versions",
+                        systemImage: "clock.arrow.circlepath",
+                        detail: track.versions.count == 1 ? "1 version" : "\(track.versions.count) versions",
+                        showsChevron: true
+                    ) {
+                        show(.versions)
                     }
                     RowDivider()
                     ActionRow(title: "Notes", systemImage: "doc.text", detail: store.notes[trackID] == nil ? nil : "Has notes", showsChevron: true) {
@@ -184,11 +200,15 @@ struct TrackDetailsSheet: View {
                         }
                     }
                     RowDivider()
+                    ActionRow(title: "Folder", systemImage: "folder", detail: folderTitle ?? "None", showsChevron: true) {
+                        show(.folder)
+                    }
+                    RowDivider()
                     ActionRow(title: "Duplicate", systemImage: "plus.square.on.square") {
                         model.duplicate(trackID: trackID, in: collectionID)
                     }
                     RowDivider()
-                    ActionRow(title: "Show in Finder", systemImage: "folder") {
+                    ActionRow(title: "Show in Finder", systemImage: "arrow.up.forward.square") {
                         model.revealInFinder(trackID: trackID)
                     }
                 }
@@ -221,10 +241,15 @@ private struct TrackSummary: View {
     let track: Track
     let collectionID: UUID?
 
+    @State private var dropTargeted = false
+
     var body: some View {
         let isCurrent = player.currentTrackID == track.id
         let artwork = model.artwork(forTrack: track.id, in: collectionID)
-        let comments = store.comments[track.id] ?? []
+        // The version on screen: the one playing, else the current one.
+        let shown = player.playingVersion(of: track.id) ?? track.currentVersionID
+        let length = track.version(shown)?.duration ?? track.duration
+        let comments = store.comments(for: track.id, version: shown)
         VStack(spacing: 0) {
             Spacer(minLength: 44)
             DiscView(artworkURL: artwork.url, seed: artwork.seed, spinning: isCurrent && player.isPlaying)
@@ -237,10 +262,21 @@ private struct TrackSummary: View {
                 .lineLimit(3)
                 .padding(.top, 22)
                 .padding(.horizontal, 24)
-            Text(Format.length(isCurrent && player.duration > 0 ? player.duration : track.duration))
+            Text(Format.length(isCurrent && player.duration > 0 ? player.duration : length))
                 .font(.system(size: 14))
                 .foregroundStyle(.secondary)
                 .padding(.top, 4)
+            if track.versions.count > 1, let shown {
+                HStack(spacing: 4) {
+                    Text("\(track.versionLabel(of: shown)) of \(track.versions.count)")
+                    if shown != track.currentVersionID {
+                        Text("· not current").foregroundStyle(.orange)
+                    }
+                }
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.secondary)
+                .padding(.top, 3)
+            }
             if track.bpm != nil || track.musicalKey != nil {
                 Text([track.bpm.map { String(format: "%g BPM", $0) }, track.musicalKey].compactMap { $0 }.joined(separator: " · "))
                     .font(.system(size: 12))
@@ -249,21 +285,21 @@ private struct TrackSummary: View {
             }
 
             WaveformView(
-                peaks: store.peaks[track.id] ?? [],
+                peaks: store.peaks(for: track.id, version: shown),
                 progress: isCurrent ? player.progress : 0,
                 style: .detail,
                 showsPlayhead: isCurrent,
-                duration: track.duration,
+                duration: length,
                 markers: comments.map { comment in
                     WaveformView.Marker(
                         id: comment.id,
-                        fraction: track.duration > 0 ? min(1, comment.timestamp / track.duration) : 0,
+                        fraction: length > 0 ? min(1, comment.timestamp / length) : 0,
                         label: "\(Format.clock(comment.timestamp)) — \(comment.text)"
                     )
                 },
-                onSeek: { fraction in play(at: fraction * track.duration) },
+                onSeek: { fraction in play(at: fraction * length, version: shown) },
                 onMarkerTap: { marker in
-                    if let comment = comments.first(where: { $0.id == marker.id }) { play(at: comment.timestamp) }
+                    if let comment = comments.first(where: { $0.id == marker.id }) { play(at: comment.timestamp, version: shown) }
                 }
             )
             .frame(height: 38)
@@ -273,7 +309,7 @@ private struct TrackSummary: View {
             HStack {
                 Text(Format.clock(isCurrent ? player.currentTime : 0))
                 Spacer()
-                Text(Format.clock(track.duration))
+                Text(Format.clock(length))
             }
             .font(.system(size: 11, design: .monospaced))
             .foregroundStyle(.tertiary)
@@ -305,6 +341,31 @@ private struct TrackSummary: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .overlay {
+            if dropTargeted {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(Color.accentColor, style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
+                    .overlay(
+                        Label("Drop to add a new version", systemImage: "waveform.badge.plus")
+                            .font(.system(size: 13, weight: .medium))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(.regularMaterial, in: Capsule())
+                    )
+                    .padding(10)
+                    .allowsHitTesting(false)
+            }
+        }
+        // Drop an audio file anywhere on the summary to add it as a new version.
+        .onDrop(of: [.fileURL], isTargeted: $dropTargeted) { providers in
+            Task {
+                let payload = await DropPayload.load(from: providers)
+                if let url = payload.fileURLs.first {
+                    await model.addVersion(to: track.id, from: url)
+                }
+            }
+            return true
+        }
     }
 
     private var queue: [UUID] {
@@ -315,8 +376,8 @@ private struct TrackSummary: View {
         player.playOrToggle(trackID: track.id, in: queue, context: collectionID)
     }
 
-    private func play(at time: TimeInterval) {
-        player.play(trackID: track.id, at: time, in: queue, context: collectionID)
+    private func play(at time: TimeInterval, version: UUID?) {
+        player.play(trackID: track.id, version: version, at: time, in: queue, context: collectionID)
     }
 }
 
@@ -363,11 +424,44 @@ private struct CommentsPane: View {
     @State private var draft = ""
     /// The playhead when the user started typing, so the comment lands where they meant.
     @State private var pinnedTime: TimeInterval?
+    /// A version picked in the menu; otherwise the one playing or current.
+    @State private var pickedVersion: UUID?
     @FocusState private var composerFocused: Bool
 
+    private var track: Track? { store.tracks[trackID] }
+
+    /// Comments are per version: a new mix gets a fresh set.
+    private var shownVersion: UUID? {
+        // A picked version may have been deleted since (here or on another device).
+        let picked = pickedVersion.flatMap { id in track?.version(id) != nil ? id : nil }
+        return picked ?? player.playingVersion(of: trackID) ?? track?.currentVersionID
+    }
+
     var body: some View {
-        let comments = store.comments[trackID] ?? []
+        let comments = store.comments(for: trackID, version: shownVersion)
         VStack(spacing: 0) {
+            if let track, track.versions.count > 1, let shown = shownVersion {
+                HStack {
+                    Menu {
+                        ForEach(track.versions.reversed()) { version in
+                            let count = store.comments(for: trackID, version: version.id).count
+                            Button {
+                                pickedVersion = version.id
+                            } label: {
+                                Text("\(track.versionLabel(of: version.id))\(version.id == track.currentVersionID ? " (current)" : "") — \(count) comment\(count == 1 ? "" : "s")")
+                            }
+                        }
+                    } label: {
+                        Text("On \(track.versionLabel(of: shown))")
+                    }
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+                    Spacer()
+                }
+                .font(.system(size: 13))
+                .padding(.horizontal, 24)
+                .padding(.bottom, 8)
+            }
             if comments.isEmpty {
                 ContentUnavailableView(
                     "No Comments Yet",
@@ -379,7 +473,7 @@ private struct CommentsPane: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 2) {
                         ForEach(comments) { comment in
-                            CommentRow(store: store, trackID: trackID, collectionID: collectionID, comment: comment)
+                            CommentRow(store: store, trackID: trackID, collectionID: collectionID, comment: comment, version: shownVersion)
                         }
                     }
                     .padding(.horizontal, 14)
@@ -409,11 +503,11 @@ private struct CommentsPane: View {
     }
 
     private var liveTime: TimeInterval {
-        player.currentTrackID == trackID ? player.currentTime : 0
+        player.playingVersion(of: trackID) == shownVersion ? player.currentTime : 0
     }
 
     private func post() {
-        guard store.addComment(to: trackID, at: pinnedTime ?? liveTime, text: draft, author: model.authorName) != nil else { return }
+        guard store.addComment(to: trackID, at: pinnedTime ?? liveTime, text: draft, author: model.authorName, version: shownVersion) != nil else { return }
         draft = ""
         pinnedTime = nil
     }
@@ -425,6 +519,8 @@ private struct CommentRow: View {
     let trackID: UUID
     let collectionID: UUID?
     let comment: TrackComment
+    /// The version this comment is on, so clicking its time plays that mix.
+    var version: UUID?
 
     @State private var hovering = false
     @State private var editing = false
@@ -434,7 +530,7 @@ private struct CommentRow: View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
             TimestampChip(time: comment.timestamp) {
                 let queue = collectionID.flatMap { store.collections[$0]?.trackIDs } ?? [trackID]
-                player.play(trackID: trackID, at: comment.timestamp, in: queue, context: collectionID)
+                player.play(trackID: trackID, version: version, at: comment.timestamp, in: queue, context: collectionID)
             }
             VStack(alignment: .leading, spacing: 4) {
                 if editing {
@@ -672,6 +768,268 @@ private struct CollectionChooserPane: View {
         let collection = store.createCollection(title: name)
         newName = ""
         choose(collection.id, contains: false)
+    }
+}
+
+// MARK: - Versions
+
+/// Every version of the track, newest first: play any of them, make one
+/// current, name, export or delete them.
+private struct VersionsPane: View {
+    @Environment(AppModel.self) private var model
+    let store: LibraryStore
+    let track: Track
+    let collectionID: UUID?
+
+    @State private var pendingDelete: UUID?
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                ActionGroup {
+                    ActionRow(title: "Upload new version…", systemImage: "waveform.badge.plus") {
+                        model.uploadNewVersion(of: track.id)
+                    }
+                }
+                Text("New versions become current; older ones stay here. You can also drop an audio file on the disc.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 4)
+
+                ActionGroup {
+                    let versions = Array(track.versions.reversed())
+                    ForEach(Array(versions.enumerated()), id: \.element.id) { index, version in
+                        if index > 0 { RowDivider() }
+                        VersionRow(store: store, track: track, version: version, collectionID: collectionID) {
+                            pendingDelete = version.id
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 24)
+            .padding(.bottom, 24)
+        }
+        .confirmationDialog(
+            pendingDelete.map { "Delete \(track.versionLabel(of: $0))?" } ?? "",
+            isPresented: Binding(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } }),
+            presenting: pendingDelete
+        ) { versionID in
+            Button("Delete Version", role: .destructive) {
+                store.deleteVersion(versionID, of: track.id)
+                model.player.libraryDidChange()
+            }
+        } message: { versionID in
+            let count = store.comments(deletedWith: versionID, of: track.id).count
+            Text("Its audio moves to the Trash\(count > 0 ? " and its \(count) comment\(count == 1 ? "" : "s") will be deleted" : "").")
+        }
+    }
+}
+
+private struct VersionRow: View {
+    @Environment(AppModel.self) private var model
+    @Environment(PlayerController.self) private var player
+    let store: LibraryStore
+    let track: Track
+    let version: TrackVersion
+    let collectionID: UUID?
+    let onDelete: () -> Void
+
+    @State private var renaming = false
+    @State private var name = ""
+    @FocusState private var nameFocused: Bool
+
+    var body: some View {
+        let isCurrent = version.id == track.currentVersionID
+        let isLoaded = player.playingVersion(of: track.id) == version.id
+        let number = track.versionNumber(of: version.id) ?? 0
+        HStack(alignment: .top, spacing: 12) {
+            Button {
+                if isLoaded {
+                    player.togglePlayPause()
+                } else {
+                    let queue = collectionID.flatMap { store.collections[$0]?.trackIDs } ?? [track.id]
+                    player.play(trackID: track.id, version: version.id, in: queue, context: collectionID)
+                }
+            } label: {
+                Image(systemName: isLoaded && player.isPlaying ? "pause.fill" : "play.fill")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color(nsColor: .textBackgroundColor))
+                    .frame(width: 30, height: 30)
+                    .background(Circle().fill(Color.primary.opacity(isLoaded ? 1 : 0.75)))
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .help(isLoaded && player.isPlaying ? "Pause" : "Play v\(number)")
+
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 6) {
+                    Text("v\(number)")
+                        .font(.system(size: 15, weight: .semibold))
+                    if renaming {
+                        TextField("Name this version", text: $name)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(size: 13))
+                            .focused($nameFocused)
+                            .onSubmit(saveName)
+                            .onExitCommand { renaming = false }
+                    } else if let label = version.name {
+                        Text(label)
+                            .font(.system(size: 14))
+                            .lineLimit(1)
+                    }
+                    if isCurrent {
+                        Text("Current")
+                            .font(.system(size: 10.5, weight: .semibold))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Capsule().fill(Color.accentColor.opacity(0.15)))
+                            .foregroundStyle(Color.accentColor)
+                    }
+                }
+                Text([Format.date(version.createdAt), Format.length(version.duration), version.originalFileName].compactMap { $0 }.joined(separator: " · "))
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                WaveformView(
+                    peaks: store.peaks(for: track.id, version: version.id),
+                    progress: isLoaded ? player.progress : 0,
+                    style: .detail,
+                    showsPlayhead: isLoaded,
+                    duration: version.duration,
+                    onSeek: { fraction in
+                        let queue = collectionID.flatMap { store.collections[$0]?.trackIDs } ?? [track.id]
+                        player.play(trackID: track.id, version: version.id, at: fraction * version.duration, in: queue, context: collectionID)
+                    }
+                )
+                .frame(height: 22)
+                .padding(.top, 2)
+            }
+
+            Menu {
+                if !isCurrent {
+                    Button("Make Current") {
+                        store.setCurrentVersion(version.id, of: track.id)
+                        player.libraryDidChange()
+                    }
+                }
+                Button(version.name == nil ? "Name Version…" : "Rename Version…") {
+                    name = version.name ?? ""
+                    renaming = true
+                    nameFocused = true
+                }
+                Button("Export Audio…") { model.exportAudio(of: track.id, version: version.id) }
+                Button("Show in Finder") {
+                    if let url = store.audioURL(for: track.id, version: version.id) {
+                        NSWorkspace.shared.activateFileViewerSelecting([url])
+                    }
+                }
+                Divider()
+                Button("Delete Version…", role: .destructive, action: onDelete)
+                    .disabled(track.versions.count == 1)
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 14, weight: .bold))
+                    .frame(width: 28, height: 28)
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+    }
+
+    private func saveName() {
+        store.renameVersion(version.id, of: track.id, to: name)
+        renaming = false
+    }
+}
+
+// MARK: - Folder
+
+/// Puts the track directly in a folder (independent of its collections).
+private struct FolderChooserPane: View {
+    @Environment(AppModel.self) private var model
+    let store: LibraryStore
+    let trackID: UUID
+
+    @State private var newName = ""
+
+    var body: some View {
+        let current = store.folder(ofTrack: trackID)
+        ScrollView {
+            VStack(spacing: 16) {
+                ActionGroup {
+                    row(title: "None", depth: 0, systemImage: "tray", selected: current == nil) {
+                        store.moveTrack(trackID, toFolder: nil)
+                    }
+                    ForEach(entries, id: \.folder.id) { entry in
+                        RowDivider()
+                        row(title: entry.folder.title, depth: entry.depth, systemImage: "folder", selected: current == entry.folder.id) {
+                            store.moveTrack(trackID, toFolder: entry.folder.id)
+                        }
+                    }
+                }
+                HStack {
+                    TextField("New folder", text: $newName)
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit(createFolder)
+                    Button("Create", action: createFolder)
+                        .disabled(newName.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+                Text("A track can sit in a folder on its own, and also be in any number of collections.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(.horizontal, 24)
+            .padding(.bottom, 24)
+        }
+    }
+
+    private func row(title: String, depth: Int, systemImage: String, selected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 14))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 20)
+                Text(title)
+                    .font(.system(size: 15))
+                    .lineLimit(1)
+                Spacer()
+                if selected {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Color.accentColor)
+                }
+            }
+            .padding(.leading, 14 + CGFloat(depth) * 18)
+            .padding(.trailing, 14)
+            .frame(height: 44)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var entries: [(folder: LibraryFolder, depth: Int)] {
+        var result: [(LibraryFolder, Int)] = []
+        func visit(_ parent: UUID?, depth: Int) {
+            for folder in store.subfolders(of: parent) {
+                result.append((folder, depth))
+                visit(folder.id, depth: depth + 1)
+            }
+        }
+        visit(nil, depth: 0)
+        return result
+    }
+
+    private func createFolder() {
+        let name = newName.trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty else { return }
+        let folder = store.createFolder(title: name)
+        store.moveTrack(trackID, toFolder: folder.id)
+        newName = ""
     }
 }
 

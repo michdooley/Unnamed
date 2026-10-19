@@ -8,6 +8,7 @@ enum SidebarItem: Hashable {
     case allTracks
     case search
     case collection(UUID)
+    case folder(UUID)
 }
 
 enum TrackDetailPane: Hashable {
@@ -15,8 +16,10 @@ enum TrackDetailPane: Hashable {
     case notes
     case comments
     case edit
+    case versions
     case addToCollection
     case moveToCollection
+    case folder
 }
 
 struct TrackDetailRoute: Identifiable, Hashable {
@@ -29,8 +32,10 @@ struct TrackDetailRoute: Identifiable, Hashable {
 
 struct NamePrompt: Identifiable {
     enum Purpose {
-        case newCollection(trackIDs: [UUID])
+        case newCollection(trackIDs: [UUID], folder: UUID?)
         case renameCollection(UUID)
+        case newFolder(parent: UUID?, moving: [LibraryItemRef])
+        case renameFolder(UUID)
     }
 
     let id = UUID()
@@ -43,10 +48,11 @@ struct NamePrompt: Identifiable {
 enum PendingDeletion: Identifiable {
     case track(UUID)
     case collection(UUID)
+    case folder(UUID)
 
     var id: UUID {
         switch self {
-        case .track(let id), .collection(let id): id
+        case .track(let id), .collection(let id), .folder(let id): id
         }
     }
 }
@@ -76,10 +82,16 @@ final class AppModel {
 
     /// Collections most recently played first, like the original sidebar.
     private(set) var recentCollectionIDs: [UUID]
+    /// Folders open in the sidebar.
+    private(set) var expandedFolders: Set<UUID>
     var authorName: String {
         didSet { UserDefaults.standard.set(authorName, forKey: "comments.author") }
     }
 
+    /// The launch screen shows once per launch, not every time the window reopens.
+    var launchScreenFinished = false
+
+    @ObservationIgnored private var startup: Task<Void, Never>?
     @ObservationIgnored private let location = LibraryLocation()
     @ObservationIgnored private var accessedRoot: URL?
     @ObservationIgnored private var pendingOpenURLs: [URL] = []
@@ -87,14 +99,25 @@ final class AppModel {
     init() {
         let defaults = UserDefaults.standard
         recentCollectionIDs = (defaults.stringArray(forKey: "collections.recent") ?? []).compactMap(UUID.init(uuidString:))
+        expandedFolders = Set((defaults.stringArray(forKey: "folders.expanded") ?? []).compactMap(UUID.init(uuidString:)))
         authorName = defaults.string(forKey: "comments.author") ?? NSFullUserName()
     }
 
     // MARK: - Library lifecycle
 
+    /// Opens the remembered library. Safe to call from several places: they
+    /// all wait for the same startup.
     func start() async {
+        if startup == nil {
+            startup = Task { await performStart() }
+        }
+        await startup?.value
+    }
+
+    private func performStart() async {
         guard store == nil, !isOpening else { return }
         #if DEBUG
+        if DebugSupport.arguments.contains("-showOnboarding") { return }
         if let demo = DebugSupport.demoLibraryURL() {
             await open(demo, remember: false)
             await DebugSupport.populateDemoLibraryIfEmpty(self)
@@ -195,11 +218,31 @@ final class AppModel {
         return nil
     }
 
-    /// Collections in sidebar order: recently played first, then newest.
+    var selectedFolderID: UUID? {
+        if case .folder(let id) = selection { return id }
+        return nil
+    }
+
+    /// The folder new things go into: the open folder, or the folder of the
+    /// open collection.
+    var currentFolderID: UUID? {
+        if let folder = selectedFolderID { return folder }
+        return selectedCollectionID.flatMap { store?.folder(ofCollection: $0) }
+    }
+
+    /// Every collection: recently played first, then newest.
     var orderedCollections: [TrackCollection] {
-        guard let store else { return [] }
+        sortedByRecency(store.map { Array($0.collections.values) } ?? [])
+    }
+
+    /// The collections directly in a folder (top level when nil), recently played first.
+    func orderedCollections(in folderID: UUID?) -> [TrackCollection] {
+        sortedByRecency(store?.collections(inFolder: folderID) ?? [])
+    }
+
+    private func sortedByRecency(_ collections: [TrackCollection]) -> [TrackCollection] {
         let rank = Dictionary(recentCollectionIDs.enumerated().map { ($1, $0) }, uniquingKeysWith: { a, _ in a })
-        return store.collections.values.sorted { a, b in
+        return collections.sorted { a, b in
             switch (rank[a.id], rank[b.id]) {
             case let (x?, y?): x < y
             case (_?, nil): true
@@ -261,8 +304,21 @@ final class AppModel {
 
     // MARK: - Collections
 
-    func promptNewCollection(with trackIDs: [UUID] = []) {
-        namePrompt = NamePrompt(purpose: .newCollection(trackIDs: trackIDs), title: "New Collection", confirmLabel: "Create", text: "")
+    /// New collection in `folder` (the current folder by default).
+    func promptNewCollection(with trackIDs: [UUID] = [], in folder: UUID?? = .none) {
+        let folder = folder ?? currentFolderID
+        namePrompt = NamePrompt(purpose: .newCollection(trackIDs: trackIDs, folder: folder), title: "New Collection", confirmLabel: "Create", text: "")
+    }
+
+    /// New folder inside `parent` (the current folder by default), optionally
+    /// moving some items into it.
+    func promptNewFolder(in parent: UUID?? = .none, moving items: [LibraryItemRef] = []) {
+        namePrompt = NamePrompt(purpose: .newFolder(parent: parent ?? currentFolderID, moving: items), title: "New Folder", confirmLabel: "Create", text: "")
+    }
+
+    func promptRename(folderID: UUID) {
+        guard let folder = store?.folders[folderID] else { return }
+        namePrompt = NamePrompt(purpose: .renameFolder(folderID), title: "Rename Folder", confirmLabel: "Rename", text: folder.title)
     }
 
     func promptRename(collectionID: UUID) {
@@ -273,11 +329,17 @@ final class AppModel {
     func commit(_ prompt: NamePrompt) {
         guard let store else { return }
         switch prompt.purpose {
-        case .newCollection(let trackIDs):
-            let collection = store.createCollection(title: prompt.text, trackIDs: trackIDs)
+        case .newCollection(let trackIDs, let folder):
+            let collection = store.createCollection(title: prompt.text, trackIDs: trackIDs, in: folder)
             selection = .collection(collection.id)
         case .renameCollection(let id):
             store.renameCollection(id, to: prompt.text)
+        case .newFolder(let parent, let items):
+            let folder = store.createFolder(title: prompt.text, in: parent)
+            move(items, toFolder: folder.id)
+            selection = .folder(folder.id)
+        case .renameFolder(let id):
+            store.renameFolder(id, to: prompt.text)
         }
     }
 
@@ -289,16 +351,73 @@ final class AppModel {
             store.deleteTrack(id)
             player.libraryDidChange()
         case .collection(let id):
-            if selectedCollectionID == id { selection = .home }
+            if selectedCollectionID == id {
+                selection = store.folder(ofCollection: id).map(SidebarItem.folder) ?? .home
+            }
             store.deleteCollection(id, deleteTracks: deleteTracks)
             player.libraryDidChange()
+        case .folder(let id):
+            if selectedFolderID == id {
+                selection = store.parentFolder(of: id).map(SidebarItem.folder) ?? .home
+            }
+            store.deleteFolder(id)
+        }
+    }
+
+    // MARK: - Folders
+
+    func toggleExpanded(_ folderID: UUID) {
+        if expandedFolders.contains(folderID) {
+            expandedFolders.remove(folderID)
+        } else {
+            expandedFolders.insert(folderID)
+        }
+        UserDefaults.standard.set(expandedFolders.map(\.uuidString), forKey: "folders.expanded")
+    }
+
+    /// Opens the folders above a selected item so it's visible in the sidebar.
+    func revealInSidebar(_ item: SidebarItem?) {
+        guard let store else { return }
+        let parent: UUID? = switch item {
+        case .collection(let id): store.folder(ofCollection: id)
+        case .folder(let id): store.parentFolder(of: id)
+        default: nil
+        }
+        guard let parent else { return }
+        let path = Set(store.folderPath(to: parent).map(\.id))
+        guard !path.isSubset(of: expandedFolders) else { return }
+        expandedFolders.formUnion(path)
+        UserDefaults.standard.set(expandedFolders.map(\.uuidString), forKey: "folders.expanded")
+    }
+
+    /// Moves tracks, collections and folders into a folder (top level when nil).
+    /// A track moved into a folder keeps its collections.
+    func move(_ items: [LibraryItemRef], toFolder folderID: UUID?) {
+        guard let store else { return }
+        for item in items {
+            switch item {
+            case .track(let id): store.moveTrack(id, toFolder: folderID)
+            case .collection(let id): store.moveCollection(id, toFolder: folderID)
+            case .folder(let id):
+                if id != folderID { store.moveFolder(id, into: folderID) }
+            }
+        }
+    }
+
+    /// Handles a drop onto a folder (or the top level when nil): moves
+    /// dragged items in and imports dropped files into it.
+    func handleDrop(_ payload: DropPayload, intoFolder folderID: UUID?) async {
+        move(payload.items, toFolder: folderID)
+        if !payload.fileURLs.isEmpty {
+            await importFiles(payload.fileURLs, into: nil, folder: folderID)
         }
     }
 
     // MARK: - Importing
 
-    /// Asks for audio files (or folders of them) and imports them.
-    func importAudio(into collectionID: UUID?) {
+    /// Asks for audio files (or folders of them) and imports them into a
+    /// collection and/or folder.
+    func importAudio(into collectionID: UUID?, folder: UUID? = nil) {
         let panel = NSOpenPanel()
         panel.title = "Add Tracks"
         panel.prompt = "Add"
@@ -307,13 +426,14 @@ final class AppModel {
         panel.allowedContentTypes = [.audio, .folder]
         guard panel.runModal() == .OK else { return }
         let urls = DropPayload.expandFolders(panel.urls)
-        Task { await importFiles(urls, into: collectionID) }
+        Task { await importFiles(urls, into: collectionID, folder: folder) }
     }
 
-    func importFiles(_ urls: [URL], into collectionID: UUID?, at index: Int? = nil) async {
+    func importFiles(_ urls: [URL], into collectionID: UUID?, at index: Int? = nil, folder: UUID? = nil) async {
         guard let store, !urls.isEmpty else { return }
-        let imported = await store.importAudio(from: urls, into: collectionID, at: index)
-        if collectionID == nil, !imported.isEmpty, selectedCollectionID == nil, selection != .allTracks {
+        let imported = await store.importAudio(from: urls, into: collectionID, at: index, folder: folder)
+        // Show where loose imports went, unless they're visible already.
+        if collectionID == nil, folder == nil, !imported.isEmpty, selectedCollectionID == nil, selectedFolderID == nil, selection != .allTracks {
             selection = .allTracks
         }
     }
@@ -325,7 +445,7 @@ final class AppModel {
             return
         }
         let audio = DropPayload.expandFolders(urls).filter(AudioAnalyzer.isAudioFile)
-        Task { await importFiles(audio, into: selectedCollectionID) }
+        Task { await importFiles(audio, into: selectedCollectionID, folder: selectedFolderID) }
     }
 
     /// Handles a drop of files or tracks onto a collection (or the library when nil).
@@ -374,31 +494,37 @@ final class AppModel {
 
     // MARK: - Track actions
 
-    func replaceAudio(of trackID: UUID) {
+    /// Asks for a file and adds it as the track's newest version.
+    func uploadNewVersion(of trackID: UUID) {
+        guard let title = store?.tracks[trackID]?.title else { return }
         let panel = NSOpenPanel()
-        panel.title = "Replace Audio"
-        panel.prompt = "Replace"
+        panel.title = "New Version of “\(title)”"
+        panel.message = "The new version becomes the one that plays. Earlier versions stay in the version history."
+        panel.prompt = "Add Version"
         panel.allowedContentTypes = [.audio]
         panel.allowsMultipleSelection = false
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        Task {
-            await store?.replaceAudio(of: trackID, with: url)
-            player.libraryDidChange()
-        }
+        Task { await addVersion(to: trackID, from: url) }
     }
 
-    func exportAudio(of trackID: UUID) {
-        guard let store, let track = store.tracks[trackID], let source = store.audioURL(for: trackID) else { return }
+    func addVersion(to trackID: UUID, from url: URL) async {
+        await store?.addVersion(to: trackID, from: url)
+        player.libraryDidChange()
+    }
+
+    func exportAudio(of trackID: UUID, version: UUID? = nil) {
+        guard let store, let track = store.tracks[trackID], let source = store.audioURL(for: trackID, version: version) else { return }
         let panel = NSSavePanel()
         panel.title = "Export Audio"
-        panel.nameFieldStringValue = "\(sanitized(track.title)).\(source.pathExtension)"
+        let suffix = version.map { " \(track.versionLabel(of: $0))" } ?? ""
+        panel.nameFieldStringValue = "\(sanitized(track.title + suffix)).\(source.pathExtension)"
         if let type = UTType(filenameExtension: source.pathExtension) {
             panel.allowedContentTypes = [type]
         }
         guard panel.runModal() == .OK, let destination = panel.url else { return }
         Task {
             do {
-                try await store.exportAudio(of: trackID, to: destination)
+                try await store.exportAudio(of: trackID, version: version, to: destination)
             } catch {
                 alert = LibraryIssue(title: "Couldn't export “\(track.title)”", message: error.localizedDescription)
             }

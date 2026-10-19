@@ -24,18 +24,24 @@ struct SearchView: View {
                 description: Text("Find tracks by title, file name, notes, comments, key or BPM.")
             )
         } else {
+            let folders = store.folders.values
+                .filter { matches($0.title, query) }
+                .sorted { LibraryStore.titleOrder($0.title, $0.id, $1.title, $1.id) }
             let collections = model.orderedCollections.filter { matches($0.title, query) }
             let tracks = store.tracksNewestFirst.filter { trackMatches($0, query) }
             let comments = commentHits(query)
-            if collections.isEmpty && tracks.isEmpty && comments.isEmpty {
+            if folders.isEmpty && collections.isEmpty && tracks.isEmpty && comments.isEmpty {
                 ContentUnavailableView.search(text: query)
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 32) {
-                        if !collections.isEmpty {
-                            section("Collections") {
+                        if !folders.isEmpty || !collections.isEmpty {
+                            section(folders.isEmpty ? "Collections" : collections.isEmpty ? "Folders" : "Folders & Collections") {
                                 ScrollView(.horizontal) {
                                     HStack(alignment: .top, spacing: 28) {
+                                        ForEach(folders) { folder in
+                                            FolderCard(store: store, folder: folder, size: 140)
+                                        }
                                         ForEach(collections) { collection in
                                             CollectionCard(store: store, collection: collection, size: 140)
                                         }
@@ -92,6 +98,7 @@ struct SearchView: View {
             || matches(track.originalFileName, query)
             || matches(store.notes[track.id], query)
             || matches(track.musicalKey, query)
+            || track.versions.contains { matches($0.name, query) || matches($0.originalFileName, query) }
             || track.bpm.map { matches(String(format: "%g", $0), query) } == true
     }
 

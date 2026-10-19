@@ -17,7 +17,11 @@ enum DebugSupport {
     static func demoLibraryURL() -> URL? {
         guard arguments.contains("-demoLibrary") else { return nil }
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        return support.appending(path: "Demo Library", directoryHint: .isDirectory)
+        let url = support.appending(path: "Demo Library", directoryHint: .isDirectory)
+        if arguments.contains("-resetDemo") {
+            try? FileManager.default.removeItem(at: url)
+        }
+        return url
     }
 
     // MARK: Demo library
@@ -81,6 +85,33 @@ enum DebugSupport {
                 }
             }
         }
+        // Folders: two collections and a loose idea filed under "2026 Releases".
+        let releases = store.createFolder(title: "2026 Releases")
+        let demos = store.createFolder(title: "Demos for Sam", in: releases.id)
+        for title in ["Pop/RnB", "Mainstream EDM"] {
+            if let collection = store.collections.values.first(where: { $0.title == title }) {
+                store.moveCollection(collection.id, toFolder: releases.id)
+            }
+        }
+        seed &+= 0x9E37_79B9_7F4A_7C15
+        let memo = scratch.appending(path: "phone voice memo.wav")
+        let memoSeed = seed
+        if (try? await Task.detached { try synthesize(seconds: 22, bpm: 70, seed: memoSeed, to: memo) }.value) != nil {
+            await store.importAudio(from: [memo], folder: demos.id)
+        }
+
+        // Versions: "late night chords" gets two newer takes, with comments on each.
+        if let chords = store.tracks.values.first(where: { $0.title == "late night chords" }) {
+            for (index, (name, seconds)) in [("with Rhodes", 52.0), ("extended", 64.0)].enumerated() {
+                let url = scratch.appending(path: "v\(index + 2)/late night chords.wav")
+                try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                let versionSeed = seed &+ UInt64(index + 1) * 977
+                guard (try? await Task.detached { try synthesize(seconds: seconds, bpm: 84, seed: versionSeed, to: url) }.value) != nil,
+                      let version = await store.addVersion(to: chords.id, from: url) else { continue }
+                store.renameVersion(version, of: chords.id, to: name)
+                store.addComment(to: chords.id, at: 9, text: index == 0 ? "Rhodes is the move" : "the long outro works", author: model.authorName, version: version)
+            }
+        }
         store.flushNotes()
         await store.flush()
     }
@@ -127,6 +158,10 @@ enum DebugSupport {
     // MARK: Snapshots
 
     static func scheduleSnapshotIfRequested() {
+        if arguments.contains("-renderShaders") {
+            Task { @MainActor in await renderShaders() }
+            return
+        }
         if arguments.contains("-selfTest") {
             Task { @MainActor in await runSelfTests() }
             return
@@ -144,6 +179,11 @@ enum DebugSupport {
             ?? FileManager.default.temporaryDirectory.appending(path: "snapshots", directoryHint: .isDirectory)
         try? FileManager.default.removeItem(at: folder)
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+
+        if arguments.contains("-showOnboarding") {
+            await shootOnboarding(into: folder)
+            return
+        }
 
         // Wait for the demo library to be ready.
         for second in 0..<120 {
@@ -204,10 +244,17 @@ enum DebugSupport {
                 await shoot("4-details")
                 model.detail?.pane = .comments
                 await shoot("5-comments")
-                model.detail?.pane = .notes
-                await shoot("6-notes")
+                model.detail?.pane = .versions
+                await shoot("6-versions")
                 model.detail = nil
             }
+        }
+        if let releases = store.folders.values.first(where: { $0.title == "2026 Releases" }) {
+            model.revealInSidebar(.collection(store.collections(inFolder: releases.id).first?.id ?? UUID()))
+            model.selection = .folder(releases.id)
+            await shoot("6b-folder")
+            model.selection = .home
+            await shoot("6c-home-with-folder")
         }
         model.selection = .allTracks
         await shoot("7-all-tracks")
@@ -229,6 +276,18 @@ enum DebugSupport {
             model.searchText = "bass"
             await renderStandalone(SearchView(store: store), size: CGSize(width: 1100, height: 700), name: "14-search", folder: folder)
             model.searchText = ""
+            if let releases = store.folders.values.first(where: { $0.title == "2026 Releases" }) {
+                model.revealInSidebar(.folder(store.subfolders(of: releases.id).first?.id ?? releases.id))
+                await renderStandalone(FolderView(store: store, folderID: releases.id), size: CGSize(width: 1200, height: 900), name: "15-folder", folder: folder)
+                await renderStandalone(SidebarView(store: store), size: CGSize(width: 260, height: 700), name: "18-sidebar-folders", folder: folder)
+            }
+            if let chords = store.tracks.values.first(where: { $0.title == "late night chords" }) {
+                model.detail = TrackDetailRoute(trackID: chords.id, collectionID: snippets.id, pane: .versions)
+                await renderStandalone(TrackDetailsSheet(trackID: chords.id, collectionID: snippets.id), size: CGSize(width: 820, height: 580), name: "16-versions", folder: folder)
+                model.detail?.pane = .comments
+                await renderStandalone(TrackDetailsSheet(trackID: chords.id, collectionID: snippets.id), size: CGSize(width: 820, height: 580), name: "17-comments-per-version", folder: folder)
+                model.detail = nil
+            }
         }
 
         model.player.pause()
@@ -281,6 +340,22 @@ enum DebugSupport {
         let fromTrack = await DropPayload.load(from: [trackDrag])
         check(fromTrack.trackIDs == [track.id] && fromTrack.fileURLs.isEmpty, "track drag round-trips as a track")
 
+        // Drag a collection and a folder (in-app only).
+        if let collection = store.collections.values.first, let folder = store.folders.values.first {
+            let drops = await DropPayload.load(from: [
+                NSItemProvider.forItem(.collection(collection.id), title: collection.title),
+                NSItemProvider.forItem(.folder(folder.id), title: folder.title),
+            ])
+            check(drops.items == [.collection(collection.id), .folder(folder.id)], "collection and folder drags round-trip")
+        }
+
+        // Moving a folder into its own subfolder is refused.
+        if let parent = store.folders.values.first(where: { !store.subfolders(of: $0.id).isEmpty }),
+           let child = store.subfolders(of: parent.id).first {
+            model.move([.folder(parent.id)], toFolder: child.id)
+            check(store.parentFolder(of: child.id) == parent.id && store.parentFolder(of: parent.id) != child.id, "folder can't move into its own subfolder")
+        }
+
         // Drop a file from "Finder".
         if let audio = store.audioURL(for: track.id), let fileDrag = NSItemProvider(contentsOf: audio) {
             let fromFile = await DropPayload.load(from: [fileDrag])
@@ -308,6 +383,51 @@ enum DebugSupport {
         }
 
         log("SELFTEST \(failures == 0 ? "OK" : "FAILED (\(failures))")")
+        NSApp.terminate(nil)
+    }
+
+    /// The launch screen and the welcome screen (run with -showOnboarding).
+    @MainActor
+    private static func shootOnboarding(into folder: URL) async {
+        func shoot(_ name: String, after delay: Duration) async {
+            try? await Task.sleep(for: delay)
+            log("READY \(name)")
+            let done = folder.appending(path: "\(name).done")
+            for _ in 0..<120 where !FileManager.default.fileExists(atPath: done.path) {
+                try? await Task.sleep(for: .milliseconds(250))
+            }
+        }
+        NSApp.activate()
+        await shoot("0a-launch", after: .milliseconds(500))
+        await shoot("0b-onboarding", after: .seconds(2))
+        await shoot("0c-onboarding-later", after: .seconds(3))
+        log("SNAPSHOTS: \(folder.path)")
+        if arguments.contains("-quitAfterSnapshot") { NSApp.terminate(nil) }
+    }
+
+    /// Renders the CD shader screens off-screen (no window needed) to
+    /// -snapshotDir, at two moments so the moving light shows, then quits.
+    @MainActor
+    private static func renderShaders() async {
+        let folder = argument(after: "-snapshotDir").map { URL(filePath: $0, directoryHint: .isDirectory) }
+            ?? FileManager.default.temporaryDirectory.appending(path: "snapshots", directoryHint: .isDirectory)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        func render(_ view: some View, _ name: String) {
+            let renderer = ImageRenderer(content: view.environment(AppModel.shared))
+            renderer.scale = 2
+            guard let image = renderer.cgImage else {
+                log("FAIL render \(name)")
+                return
+            }
+            let rep = NSBitmapImageRep(cgImage: image)
+            try? rep.representation(using: .png, properties: [:])?.write(to: folder.appending(path: "\(name).png"))
+            log("rendered \(name)")
+        }
+        render(OnboardingView().frame(width: 1320, height: 860), "shader-onboarding-a")
+        render(OnboardingView(timeOffset: 6).frame(width: 1320, height: 860), "shader-onboarding-b")
+        render(SpinningDiscsView(arrangement: .single).frame(width: 900, height: 600), "shader-launch")
+        render(SpinningDiscsView(arrangement: .single).frame(width: 520, height: 520).scaleEffect(1), "shader-disc-closeup")
+        log("SNAPSHOTS: \(folder.path)")
         NSApp.terminate(nil)
     }
 

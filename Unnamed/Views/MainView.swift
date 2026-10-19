@@ -39,6 +39,16 @@ struct MainView: View {
                     .help("Collection actions")
                 }
             }
+            if let folderID = model.selectedFolderID, store.folders[folderID] != nil {
+                ToolbarItem(placement: .primaryAction) {
+                    Menu {
+                        FolderMenuItems(folderID: folderID)
+                    } label: {
+                        Label("Folder", systemImage: "ellipsis.circle")
+                    }
+                    .help("Folder actions")
+                }
+            }
         }
         .searchable(text: $model.searchText, placement: .toolbar, prompt: "Search")
         .searchFocused($searchFieldFocused)
@@ -87,6 +97,8 @@ struct MainView: View {
             case .collection:
                 Button("Delete Collection", role: .destructive) { model.confirmDeletion(deletion) }
                 Button("Delete Collection and Its Tracks", role: .destructive) { model.confirmDeletion(deletion, deleteTracks: true) }
+            case .folder:
+                Button("Delete Folder", role: .destructive) { model.confirmDeletion(deletion) }
             }
             Button("Cancel", role: .cancel) {}
         } message: { deletion in
@@ -95,6 +107,8 @@ struct MainView: View {
                 Text("The track, its notes and comments move to the Trash, and it's removed from every collection.")
             case .collection:
                 Text("Deleting just the collection keeps its tracks in All Tracks. Deleting its tracks too only removes tracks that aren't in another collection.")
+            case .folder(let id):
+                Text("Nothing inside is deleted: its contents move to \(store.parentFolder(of: id).flatMap { store.folders[$0]?.title }.map { "“\($0)”" } ?? "the top level").")
             }
         }
         .alert(
@@ -124,6 +138,13 @@ struct MainView: View {
             } else {
                 HomeView(store: store)
             }
+        case .folder(let id):
+            if store.folders[id] != nil {
+                FolderView(store: store, folderID: id)
+                    .id(id)
+            } else {
+                HomeView(store: store)
+            }
         }
     }
 
@@ -131,6 +152,7 @@ struct MainView: View {
         switch model.pendingDeletion {
         case .track(let id): "Delete “\(store.tracks[id]?.title ?? "track")”?"
         case .collection(let id): "Delete “\(store.collections[id]?.title ?? "collection")”?"
+        case .folder(let id): "Delete the folder “\(store.folders[id]?.title ?? "folder")”?"
         case nil: ""
         }
     }
@@ -152,31 +174,46 @@ struct MainView: View {
     }
 }
 
-/// "Unnamed / Snippets" in the toolbar.
+/// "Unnamed / 2026 / Snippets" in the toolbar; every step is clickable.
 private struct Breadcrumb: View {
     @Environment(AppModel.self) private var model
     let store: LibraryStore
 
     var body: some View {
+        let steps = self.steps
         HStack(spacing: 6) {
             Button("Unnamed") { model.selection = .home }
                 .buttonStyle(.plain)
-                .foregroundStyle(currentTitle == nil ? .primary : .secondary)
-            if let currentTitle {
+                .foregroundStyle(steps.isEmpty ? .primary : .secondary)
+            ForEach(Array(steps.enumerated()), id: \.offset) { index, step in
                 Text("/").foregroundStyle(.tertiary)
-                Text(currentTitle).lineLimit(1)
+                if let destination = step.destination, index < steps.count - 1 {
+                    Button(step.title) { model.selection = destination }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                } else {
+                    Text(step.title).lineLimit(1)
+                }
             }
         }
         .font(.system(size: 15, weight: .medium))
         .padding(.horizontal, 6)
     }
 
-    private var currentTitle: String? {
+    private var steps: [(title: String, destination: SidebarItem?)] {
+        func path(_ folderID: UUID?) -> [(String, SidebarItem?)] {
+            guard let folderID else { return [] }
+            return store.folderPath(to: folderID).map { ($0.title, .folder($0.id)) }
+        }
         switch model.selection ?? .home {
-        case .home: nil
-        case .allTracks: "All Tracks"
-        case .search: "Search"
-        case .collection(let id): store.collections[id]?.title
+        case .home: return []
+        case .allTracks: return [("All Tracks", nil)]
+        case .search: return [("Search", nil)]
+        case .collection(let id):
+            return path(store.folder(ofCollection: id)) + [(store.collections[id]?.title ?? "", .collection(id))]
+        case .folder(let id):
+            return path(id)
         }
     }
 }
@@ -218,16 +255,20 @@ private struct PlayerDock: View {
                         .contentShape(Circle())
                 }
                 .buttonStyle(.plain)
-                .help("New collection or add tracks")
+                .help("New collection, folder or tracks")
                 .popover(isPresented: $showingAddMenu, arrowEdge: .top) {
                     VStack(alignment: .leading, spacing: 2) {
                         PopoverRow(title: "New Collection", systemImage: "square.stack") {
                             showingAddMenu = false
                             model.promptNewCollection()
                         }
+                        PopoverRow(title: "New Folder", systemImage: "folder.badge.plus") {
+                            showingAddMenu = false
+                            model.promptNewFolder()
+                        }
                         PopoverRow(title: "Add Tracks…", systemImage: "waveform.badge.plus") {
                             showingAddMenu = false
-                            model.importAudio(into: model.selectedCollectionID)
+                            model.importAudio(into: model.selectedCollectionID, folder: model.selectedFolderID)
                         }
                     }
                     .padding(6)
@@ -239,7 +280,7 @@ private struct PlayerDock: View {
 
     private var showsAddButton: Bool {
         switch model.selection ?? .home {
-        case .home, .allTracks: true
+        case .home, .allTracks, .folder: true
         default: false
         }
     }

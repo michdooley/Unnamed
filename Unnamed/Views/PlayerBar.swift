@@ -35,7 +35,7 @@ struct PlayerBar: View {
 
                 if density != .minimal {
                     WaveformView(
-                        peaks: store.peaks[trackID] ?? [],
+                        peaks: store.peaks(for: trackID, version: player.playingVersionID),
                         progress: player.progress,
                         style: .playerBar,
                         duration: player.duration,
@@ -108,10 +108,12 @@ struct PlayerBar: View {
     }
 
     private var subtitle: String {
-        if let id = player.contextCollectionID, let collection = store.collections[id] {
-            return collection.title
+        let place = player.contextCollectionID.flatMap { store.collections[$0]?.title } ?? "All Tracks"
+        // Make it obvious when an older version is playing.
+        if let version = player.playingVersionID, let id = player.currentTrackID, let track = store.tracks[id] {
+            return "\(track.versionLabel(of: version)) · \(place)"
         }
-        return "All Tracks"
+        return place
     }
 
     private var repeatHelp: String {

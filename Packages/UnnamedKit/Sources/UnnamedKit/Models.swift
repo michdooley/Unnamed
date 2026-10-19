@@ -1,26 +1,94 @@
 import Foundation
 
-/// A single music idea: one audio file plus its metadata.
+/// One take of a track's audio. A track keeps every version it's had, so
+/// "upload a new version" never loses the old one.
 ///
-/// Stored on disk as `Tracks/<id>/track.json`. Notes, comments and the
-/// waveform live in sibling files so that edits on two devices rarely
-/// touch the same file.
+/// Each version is its own file (`Tracks/<track>/Versions/<id>.json`), so
+/// an edit to the track on one device can never erase a version added on another.
+public struct TrackVersion: Identifiable, Hashable, Sendable {
+    public var id: UUID
+    /// File name of the audio inside the track's folder.
+    public var audioFileName: String
+    /// Name of the file as it was originally imported.
+    public var originalFileName: String?
+    /// Duration in seconds (0 until analysed).
+    public var duration: TimeInterval
+    public var createdAt: Date
+    /// Optional label like "rough mix" or "new vocal".
+    public var name: String?
+
+    public init(
+        id: UUID = UUID(),
+        audioFileName: String,
+        originalFileName: String? = nil,
+        duration: TimeInterval = 0,
+        createdAt: Date = .libraryNow,
+        name: String? = nil
+    ) {
+        self.id = id
+        self.audioFileName = audioFileName
+        self.originalFileName = originalFileName
+        self.duration = duration
+        self.createdAt = createdAt
+        self.name = name
+    }
+}
+
+extension TrackVersion: Codable {
+    enum CodingKeys: String, CodingKey {
+        case id, audioFile, originalFileName, duration, createdAt, name
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        audioFileName = try c.decode(String.self, forKey: .audioFile)
+        originalFileName = try c.decodeIfPresent(String.self, forKey: .originalFileName)
+        duration = try c.decodeIfPresent(TimeInterval.self, forKey: .duration) ?? 0
+        createdAt = try c.decodeIfPresent(Date.self, forKey: .createdAt) ?? .distantPast
+        name = try c.decodeIfPresent(String.self, forKey: .name)
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(audioFileName, forKey: .audioFile)
+        try c.encodeIfPresent(originalFileName, forKey: .originalFileName)
+        try c.encode(duration, forKey: .duration)
+        try c.encode(createdAt, forKey: .createdAt)
+        try c.encodeIfPresent(name, forKey: .name)
+    }
+}
+
+extension TrackVersion {
+    /// Oldest first; ties (same second, e.g. from two devices) break by ID so
+    /// every device numbers versions the same way.
+    static func order(_ a: TrackVersion, _ b: TrackVersion) -> Bool {
+        a.createdAt == b.createdAt ? a.id.uuidString < b.id.uuidString : a.createdAt < b.createdAt
+    }
+}
+
+/// A single music idea: its audio versions plus metadata.
+///
+/// Stored on disk as `Tracks/<id>/track.json`. Notes, comments and waveforms
+/// live in sibling files so that edits on two devices rarely touch the same file.
 public struct Track: Identifiable, Hashable, Sendable {
     public var id: UUID
     public var title: String
     public var createdAt: Date
     public var updatedAt: Date
-    /// File name of the audio inside the track's folder.
-    public var audioFileName: String?
-    /// Name of the file as it was originally imported.
-    public var originalFileName: String?
-    /// Duration in seconds (0 until analysed).
-    public var duration: TimeInterval
+    /// Every version of the audio, oldest first. Loaded from `Versions/`, not track.json.
+    public var versions: [TrackVersion]
+    /// The version that plays by default.
+    public var currentVersionID: UUID?
     /// File name of the artwork inside the track's folder, if any.
     public var artworkFileName: String?
     public var bpm: Double?
     public var musicalKey: String?
+    /// The folder this track sits in directly (independent of its collections).
+    public var folderID: UUID?
 
+    /// Creates a track with a single version whose ID matches the track's.
     public init(
         id: UUID = UUID(),
         title: String,
@@ -31,24 +99,58 @@ public struct Track: Identifiable, Hashable, Sendable {
         duration: TimeInterval = 0,
         artworkFileName: String? = nil,
         bpm: Double? = nil,
-        musicalKey: String? = nil
+        musicalKey: String? = nil,
+        folderID: UUID? = nil
     ) {
         self.id = id
         self.title = title
         self.createdAt = createdAt
         self.updatedAt = updatedAt
-        self.audioFileName = audioFileName
-        self.originalFileName = originalFileName
-        self.duration = duration
+        if let audioFileName {
+            versions = [TrackVersion(id: id, audioFileName: audioFileName, originalFileName: originalFileName, duration: duration, createdAt: createdAt)]
+            currentVersionID = id
+        } else {
+            versions = []
+            currentVersionID = nil
+        }
         self.artworkFileName = artworkFileName
         self.bpm = bpm
         self.musicalKey = musicalKey
+        self.folderID = folderID
     }
+
+    /// The version that plays by default (the newest if the ID is unknown).
+    public var currentVersion: TrackVersion? {
+        version(nil)
+    }
+
+    /// A specific version, or the current one when `id` is nil.
+    public func version(_ id: UUID?) -> TrackVersion? {
+        let wanted = id ?? currentVersionID
+        return versions.first { $0.id == wanted } ?? (id == nil ? versions.last : nil)
+    }
+
+    /// 1-based position of a version ("v2").
+    public func versionNumber(of id: UUID) -> Int? {
+        versions.firstIndex { $0.id == id }.map { $0 + 1 }
+    }
+
+    /// "v2" or "v2 · new vocal".
+    public func versionLabel(of id: UUID) -> String {
+        guard let number = versionNumber(of: id) else { return "" }
+        if let name = version(id)?.name, !name.isEmpty { return "v\(number) · \(name)" }
+        return "v\(number)"
+    }
+
+    public var audioFileName: String? { currentVersion?.audioFileName }
+    public var originalFileName: String? { currentVersion?.originalFileName }
+    public var duration: TimeInterval { currentVersion?.duration ?? 0 }
 }
 
 extension Track: Codable {
     enum CodingKeys: String, CodingKey {
         case id, title, createdAt, updatedAt, audioFile, originalFileName, duration, artworkFile, bpm, key
+        case versions, currentVersion, folder
     }
 
     // Lenient decoding: every field is optional on disk so files written by
@@ -59,12 +161,30 @@ extension Track: Codable {
         title = try c.decodeIfPresent(String.self, forKey: .title) ?? "Untitled"
         createdAt = try c.decodeIfPresent(Date.self, forKey: .createdAt) ?? .distantPast
         updatedAt = try c.decodeIfPresent(Date.self, forKey: .updatedAt) ?? createdAt
-        audioFileName = try c.decodeIfPresent(String.self, forKey: .audioFile)
-        originalFileName = try c.decodeIfPresent(String.self, forKey: .originalFileName)
-        duration = try c.decodeIfPresent(TimeInterval.self, forKey: .duration) ?? 0
         artworkFileName = try c.decodeIfPresent(String.self, forKey: .artworkFile)
         bpm = try c.decodeIfPresent(Double.self, forKey: .bpm)
         musicalKey = try c.decodeIfPresent(String.self, forKey: .key)
+        folderID = try c.decodeIfPresent(UUID.self, forKey: .folder)
+
+        // Versions normally come from their own files (the scanner fills them
+        // in). A track without any is format 1: its single audio file becomes
+        // version 1. The scanner gives it the track folder's ID, which every
+        // device derives identically.
+        let current = try? c.decodeIfPresent(UUID.self, forKey: .currentVersion)
+        var versions = (try? c.decodeIfPresent([TrackVersion].self, forKey: .versions)) ?? []
+        if versions.isEmpty, let audioFile = try c.decodeIfPresent(String.self, forKey: .audioFile) {
+            // The top-level fields mirror the current version, so if one is
+            // named (format 2, version files still syncing) use its ID.
+            versions = [TrackVersion(
+                id: current ?? id,
+                audioFileName: audioFile,
+                originalFileName: try c.decodeIfPresent(String.self, forKey: .originalFileName),
+                duration: try c.decodeIfPresent(TimeInterval.self, forKey: .duration) ?? 0,
+                createdAt: createdAt
+            )]
+        }
+        self.versions = versions
+        currentVersionID = versions.contains { $0.id == current } ? current : versions.last?.id
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -73,12 +193,72 @@ extension Track: Codable {
         try c.encode(title, forKey: .title)
         try c.encode(createdAt, forKey: .createdAt)
         try c.encode(updatedAt, forKey: .updatedAt)
+        try c.encodeIfPresent(currentVersionID, forKey: .currentVersion)
+        // The current version is mirrored at the top level so format-1 readers
+        // still find and play it.
         try c.encodeIfPresent(audioFileName, forKey: .audioFile)
         try c.encodeIfPresent(originalFileName, forKey: .originalFileName)
         try c.encode(duration, forKey: .duration)
         try c.encodeIfPresent(artworkFileName, forKey: .artworkFile)
         try c.encodeIfPresent(bpm, forKey: .bpm)
         try c.encodeIfPresent(musicalKey, forKey: .key)
+        try c.encodeIfPresent(folderID, forKey: .folder)
+    }
+}
+
+/// Identifies one version of one track (version IDs are only unique within a track).
+public struct VersionKey: Hashable, Sendable {
+    public var track: UUID
+    public var version: UUID
+
+    public init(track: UUID, version: UUID) {
+        self.track = track
+        self.version = version
+    }
+}
+
+/// A folder for organising: it can hold other folders, collections and tracks.
+///
+/// Folders form a tree. Each item records its own parent (`folder` in its
+/// JSON), so moving things around only rewrites the item that moved. Stored
+/// as `Folders/<id>/folder.json`.
+public struct LibraryFolder: Identifiable, Hashable, Sendable {
+    public var id: UUID
+    public var title: String
+    public var createdAt: Date
+    public var updatedAt: Date
+    public var parentID: UUID?
+
+    public init(id: UUID = UUID(), title: String, createdAt: Date = .libraryNow, updatedAt: Date = .libraryNow, parentID: UUID? = nil) {
+        self.id = id
+        self.title = title
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+        self.parentID = parentID
+    }
+}
+
+extension LibraryFolder: Codable {
+    enum CodingKeys: String, CodingKey {
+        case id, title, createdAt, updatedAt, parent
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        title = try c.decodeIfPresent(String.self, forKey: .title) ?? "Untitled Folder"
+        createdAt = try c.decodeIfPresent(Date.self, forKey: .createdAt) ?? .distantPast
+        updatedAt = try c.decodeIfPresent(Date.self, forKey: .updatedAt) ?? createdAt
+        parentID = try c.decodeIfPresent(UUID.self, forKey: .parent)
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(title, forKey: .title)
+        try c.encode(createdAt, forKey: .createdAt)
+        try c.encode(updatedAt, forKey: .updatedAt)
+        try c.encodeIfPresent(parentID, forKey: .parent)
     }
 }
 
@@ -93,6 +273,7 @@ public struct TrackCollection: Identifiable, Hashable, Sendable {
     public var updatedAt: Date
     public var trackIDs: [UUID]
     public var artworkFileName: String?
+    public var folderID: UUID?
 
     public init(
         id: UUID = UUID(),
@@ -100,7 +281,8 @@ public struct TrackCollection: Identifiable, Hashable, Sendable {
         createdAt: Date = .libraryNow,
         updatedAt: Date = .libraryNow,
         trackIDs: [UUID] = [],
-        artworkFileName: String? = nil
+        artworkFileName: String? = nil,
+        folderID: UUID? = nil
     ) {
         self.id = id
         self.title = title
@@ -108,12 +290,13 @@ public struct TrackCollection: Identifiable, Hashable, Sendable {
         self.updatedAt = updatedAt
         self.trackIDs = trackIDs
         self.artworkFileName = artworkFileName
+        self.folderID = folderID
     }
 }
 
 extension TrackCollection: Codable {
     enum CodingKeys: String, CodingKey {
-        case id, title, createdAt, updatedAt, tracks, artworkFile
+        case id, title, createdAt, updatedAt, tracks, artworkFile, folder
     }
 
     public init(from decoder: any Decoder) throws {
@@ -124,6 +307,7 @@ extension TrackCollection: Codable {
         updatedAt = try c.decodeIfPresent(Date.self, forKey: .updatedAt) ?? createdAt
         trackIDs = try c.decodeIfPresent([UUID].self, forKey: .tracks) ?? []
         artworkFileName = try c.decodeIfPresent(String.self, forKey: .artworkFile)
+        folderID = try c.decodeIfPresent(UUID.self, forKey: .folder)
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -134,6 +318,7 @@ extension TrackCollection: Codable {
         try c.encode(updatedAt, forKey: .updatedAt)
         try c.encode(trackIDs, forKey: .tracks)
         try c.encodeIfPresent(artworkFileName, forKey: .artworkFile)
+        try c.encodeIfPresent(folderID, forKey: .folder)
     }
 }
 
@@ -148,13 +333,22 @@ public struct TrackComment: Identifiable, Hashable, Sendable, Codable {
     public var text: String
     public var createdAt: Date
     public var author: String?
+    /// The version the comment was made on. Comments from before versions
+    /// existed have none and belong to the first version.
+    public var versionID: UUID?
 
-    public init(id: UUID = UUID(), timestamp: TimeInterval, text: String, createdAt: Date = .libraryNow, author: String? = nil) {
+    enum CodingKeys: String, CodingKey {
+        case id, timestamp, text, createdAt, author
+        case versionID = "version"
+    }
+
+    public init(id: UUID = UUID(), timestamp: TimeInterval, text: String, createdAt: Date = .libraryNow, author: String? = nil, versionID: UUID? = nil) {
         self.id = id
         self.timestamp = timestamp
         self.text = text
         self.createdAt = createdAt
         self.author = author
+        self.versionID = versionID
     }
 }
 
@@ -182,7 +376,7 @@ public enum CloudStatus: Hashable, Sendable {
 /// The marker file at the root of every library folder.
 struct LibraryManifest: Codable, Sendable {
     var format: String = "unnamed-library"
-    var version: Int = 1
+    var version: Int = 2
     var createdAt: Date = .libraryNow
 }
 

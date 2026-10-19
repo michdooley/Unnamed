@@ -1,9 +1,10 @@
 import SwiftUI
 
-/// Lays out equally sized items in rows, centring each row — the Home grid.
+/// Lays out items in wrapping rows, centred (the Home grid) or leading-aligned.
 struct CenteredFlowLayout: Layout {
     var spacing: CGFloat = 48
     var rowSpacing: CGFloat = 40
+    var centered = true
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         let rows = arrange(width: proposal.width ?? .infinity, subviews: subviews)
@@ -15,7 +16,7 @@ struct CenteredFlowLayout: Layout {
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
         var y = bounds.minY
         for row in arrange(width: bounds.width, subviews: subviews) {
-            var x = bounds.minX + (bounds.width - row.width) / 2
+            var x = bounds.minX + (centered ? (bounds.width - row.width) / 2 : 0)
             for index in row.indices {
                 let size = subviews[index].sizeThatFits(.unspecified)
                 subviews[index].place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))

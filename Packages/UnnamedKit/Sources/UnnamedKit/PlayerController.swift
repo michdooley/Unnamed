@@ -15,6 +15,9 @@ import UIKit
 public final class PlayerController {
     public private(set) var queue = PlaybackQueue()
     public private(set) var currentTrackID: UUID?
+    /// A specific version being played instead of the track's current one
+    /// (nil means "whatever version is current").
+    public private(set) var playingVersionID: UUID?
     /// The collection the current queue was started from, if any.
     public private(set) var contextCollectionID: UUID?
     public private(set) var isPlaying = false
@@ -29,6 +32,12 @@ public final class PlayerController {
     public var repeatMode: RepeatMode { queue.repeatMode }
     public var progress: Double { duration > 0 ? min(1, max(0, currentTime / duration)) : 0 }
     public var hasTrack: Bool { currentTrackID != nil }
+
+    /// The version of `trackID` that's loaded, if that track is the current one.
+    public func playingVersion(of trackID: UUID) -> UUID? {
+        guard currentTrackID == trackID else { return nil }
+        return playingVersionID ?? library?.tracks[trackID]?.currentVersion?.id
+    }
 
     @ObservationIgnored public weak var library: LibraryStore?
     @ObservationIgnored private let player = AVPlayer()
@@ -107,6 +116,26 @@ public final class PlayerController {
         }
     }
 
+    /// Plays one version of a track (its current version when `version` is nil).
+    public func play(trackID: UUID, version: UUID?, at time: TimeInterval = 0, in trackIDs: [UUID], context: UUID?) {
+        guard let track = library?.tracks[trackID] else { return }
+        let version = version == track.currentVersionID ? nil : version
+        if currentTrackID == trackID {
+            // Compare the versions actually meant, not the nil-means-current shorthand.
+            if (version ?? track.currentVersionID) == playingVersion(of: trackID) {
+                seek(to: time)
+                resume()
+            } else {
+                startCurrent(at: time, autoplay: true, version: version)
+            }
+            return
+        }
+        let ids = trackIDs.contains(trackID) ? trackIDs : [trackID]
+        queue.load(ids.filter { library?.tracks[$0] != nil }, startAt: trackID)
+        contextCollectionID = trackIDs.contains(trackID) ? context : nil
+        startCurrent(at: time, autoplay: true, version: version)
+    }
+
     public func addToQueue(_ trackID: UUID) {
         if currentTrackID == nil {
             play(trackIDs: [trackID])
@@ -125,7 +154,7 @@ public final class PlayerController {
         guard currentTrackID != nil else { return }
         isPlaying = true
         if player.currentItem == nil {
-            if !isLoading { startCurrent(at: currentTime, autoplay: true) }
+            if !isLoading { startCurrent(at: currentTime, autoplay: true, version: playingVersionID) }
         } else {
             player.play()
         }
@@ -146,8 +175,9 @@ public final class PlayerController {
     public func previous() {
         if currentTime > 3 {
             seek(to: 0)
-        } else if queue.goBack() != nil {
-            startCurrent(at: 0, autoplay: isPlaying)
+        } else if let id = queue.goBack() {
+            // Landing on the same track (a one-track queue) keeps its version.
+            startCurrent(at: 0, autoplay: isPlaying, version: id == currentTrackID ? playingVersionID : nil)
         } else {
             seek(to: 0)
         }
@@ -204,6 +234,7 @@ public final class PlayerController {
         queue.setShuffle(defaults.bool(forKey: Keys.shuffle))
         queue.repeatMode = RepeatMode(rawValue: defaults.string(forKey: Keys.repeatMode) ?? "") ?? .off
         currentTrackID = nil
+        playingVersionID = nil
         loadingURL = nil
         statusObservation = nil
         contextCollectionID = nil
@@ -235,13 +266,21 @@ public final class PlayerController {
             }
         }
         if let id = currentTrackID, let track = library.tracks[id] {
-            if let loading = loadingURL,
-               let expected = library.audioURL(for: id),
-               loading.standardizedFileURL != expected.standardizedFileURL {
-                // The audio was replaced (here or on another device).
+            if playingVersionID != nil, playingVersionID == track.currentVersionID {
+                // The version being played was just made current.
+                playingVersionID = nil
+            }
+            if let version = playingVersionID, track.version(version) == nil {
+                // The version being played was deleted: fall back to the current one.
                 startCurrent(at: 0, autoplay: isPlaying)
-            } else if track.duration > 0, abs(track.duration - duration) > 0.5, player.currentItem == nil {
-                duration = track.duration
+            } else if let loading = loadingURL,
+               let expected = library.audioURL(for: id, version: playingVersionID),
+               loading.standardizedFileURL != expected.standardizedFileURL {
+                // A different version became current (here or on another device).
+                startCurrent(at: 0, autoplay: isPlaying, version: playingVersionID)
+            } else if let length = track.version(playingVersionID)?.duration, length > 0,
+                      abs(length - duration) > 0.5, player.currentItem == nil {
+                duration = length
             }
             updateNowPlaying()
         }
@@ -265,10 +304,12 @@ public final class PlayerController {
             player.play()
             return
         }
-        startCurrent(at: 0, autoplay: automatic || isPlaying)
+        startCurrent(at: 0, autoplay: automatic || isPlaying, version: next == previous ? playingVersionID : nil)
     }
 
-    private func startCurrent(at time: TimeInterval, autoplay: Bool) {
+    /// Loads the queue's current track. `version` picks a specific version;
+    /// every other caller gets the track's current version.
+    private func startCurrent(at time: TimeInterval, autoplay: Bool, version: UUID? = nil) {
         guard let id = queue.current, let library, let track = library.tracks[id] else {
             stop()
             return
@@ -277,8 +318,10 @@ public final class PlayerController {
         player.pause()
         player.replaceCurrentItem(with: nil)
         currentTrackID = id
-        loadingURL = library.audioURL(for: id)
-        duration = track.duration
+        playingVersionID = track.version(version) == nil ? nil : version
+        let version = playingVersionID
+        loadingURL = library.audioURL(for: id, version: version)
+        duration = track.version(version)?.duration ?? track.duration
         currentTime = time
         isPlaying = autoplay
         isLoading = true
@@ -286,7 +329,7 @@ public final class PlayerController {
 
         loadTask = Task { [weak self] in
             do {
-                let url = try await library.ensureDownloaded(id)
+                let url = try await library.ensureDownloaded(id, version: version)
                 guard let self, !Task.isCancelled, self.currentTrackID == id else { return }
                 self.isLoading = false
                 self.load(url: url)
@@ -371,8 +414,9 @@ public final class PlayerController {
         }
         let collectionTitle = contextCollectionID.flatMap { library?.collections[$0]?.title }
         let artwork = library?.artworkURL(forTrack: id) ?? contextCollectionID.flatMap { library?.artworkURL(forCollection: $0) }
+        let title = playingVersionID.map { "\(track.title) (\(track.versionLabel(of: $0)))" } ?? track.title
         nowPlaying.update(
-            title: track.title,
+            title: title,
             collection: collectionTitle,
             duration: duration,
             elapsed: currentTime,

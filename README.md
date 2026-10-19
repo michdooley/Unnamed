@@ -6,21 +6,28 @@ Your library is **a plain folder you own**. Put it in iCloud Drive and it syncs 
 
 ![The collection page](docs/images/collection.png)
 
+| Version history | Folders | Welcome screen |
+| --- | --- | --- |
+| ![Versions](docs/images/versions.png) | ![A folder](docs/images/folder.png) | ![Spinning CDs](docs/images/welcome.jpg) |
+
 ## Features
 
 - **Import** WAV, MP3, AIFF, M4A/AAC, FLAC, CAF, or anything else macOS can play. Use the Add Tracks button, drag files or whole folders into the window, drop them on the Dock icon, or use Open With.
-- **Collections**: albums, EPs, mixtapes, folders of sketches. A track can be in several collections. Reorder by dragging, add tracks you've already uploaded, and move or duplicate tracks between collections.
+- **Collections**: albums, EPs, mixtapes, sets of sketches. A track can be in several collections. Reorder by dragging, add tracks you've already uploaded, and move or duplicate tracks between collections.
+- **Folders** for organizing. A folder can hold subfolders, collections and loose tracks, nested as deep as you like. Drag things into folders in the sidebar or on a folder's page.
+- **Version history**: upload a new version of a track and the old ones are kept. Play any version, name it ("rough mix", "with vocals"), make it current again, or export it. Comments belong to the version they were made on.
 - **Artwork** for collections and individual tracks. Click the cover or drop an image on it. Tracks without their own art take on their collection's look.
 - **Waveform player**: a floating player with a scrubbable waveform, play/pause, next/previous, shuffle, repeat (all/one), volume and an up-next queue. Media keys and Control Center work too.
-- **Timestamped comments**: start typing while a track plays and the comment pins to that moment. Comments show as markers on the waveform; click one to jump there.
+- **Timestamped comments**: start typing while a track plays and the comment pins to that moment (and that version). Comments show as markers on the waveform; click one to jump there.
 - **Notes** per track, for lyrics, chords and to-dos.
 - **Search** across titles, file names, notes, comments, key and BPM.
 - **iCloud aware**: tracks that aren't downloaded yet show a cloud badge and download when played. Use "Make available offline" / "Remove download" to manage space.
-- **Export** a track, or a whole collection as numbered files. Drag a track straight into Finder or your DAW.
+- **Export** a track (or any version), or a whole collection as numbered files. Drag a track straight into Finder or your DAW.
+- **A Metal welcome screen**: slowly spinning CDs, drawn per pixel with a small diffraction model, whose rainbow sheen follows your mouse.
 
 ## Getting started
 
-Requirements: macOS 15 or later, and Xcode 16 or later to build.
+Requirements: macOS 15 or later, and Xcode 16 or later to build. Xcode 26 ships the Metal compiler separately; if the build says it's missing, run `xcodebuild -downloadComponent MetalToolchain`.
 
 ```sh
 git clone <this repo>
@@ -49,8 +56,9 @@ The library is ordinary files (see [docs/LIBRARY_FORMAT.md](docs/LIBRARY_FORMAT.
 
 ```
 Unnamed Library/
-  Tracks/<id>/        audio, track.json, notes.md, Comments/*.json, waveform.json, artwork
+  Tracks/<id>/        every version's audio, track.json, notes.md, Comments/*.json, Waveforms/*.json, artwork
   Collections/<id>/   collection.json (ordered track ids), artwork
+  Folders/<id>/       folder.json (title and parent folder)
 ```
 
 iCloud Drive moves the files between devices. The app watches the folder, picks up changes as they arrive, and writes through `NSFileCoordinator` the way iCloud expects. Each comment is its own file, and notes are separate from metadata, so edits made on two devices at once rarely touch the same file. When they do, the newest version wins.
@@ -63,13 +71,13 @@ Why not CloudKit? CloudKit needs a paid Apple Developer membership for every per
 Packages/UnnamedKit/   Platform-independent core, shared with the future iPhone app
   Models, LibraryLayout          the on-disk format
   LibraryDisk                    file I/O actor: coordinated writes, cached scans, conflicts
-  LibraryStore                   observable in-memory library, mutations, sync
+  LibraryStore (+Folders, +Versions)  observable in-memory library, mutations, sync
   AudioAnalyzer                  duration + waveform peaks
   PlaybackQueue, PlayerController  queue rules, AVPlayer, Now Playing
 Unnamed/               macOS app (SwiftUI)
   App/        app entry, menus, AppModel (navigation, panels), debug helpers
   Views/      Home, collection page, track details, player bar, search, settings
-  Components/ waveform, disc, artwork, drag and drop, layout
+  Components/ waveform, disc, artwork, drag and drop, layout, CD shader (Metal)
 Config/                Info.plist, entitlements, signing
 ```
 
