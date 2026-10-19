@@ -12,6 +12,11 @@
 // lets macOS keep remembering the library folder you picked.
 
 PRODUCT_BUNDLE_IDENTIFIER = com.michaeldooley.Unnamed
+
+// Optional: an Unsplash Access Key built into the app for the cover-art
+// picker (unsplash.com/developers). Set it in Signing.local.xcconfig; users
+// can also paste their own in Settings.
+UNSPLASH_ACCESS_KEY =
 CODE_SIGN_STYLE = Automatic
 CODE_SIGN_IDENTITY = -
 DEVELOPMENT_TEAM =

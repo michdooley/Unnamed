@@ -148,6 +148,19 @@ actor LibraryDisk {
         Self.cloudStatus(of: url)
     }
 
+    /// Every track ID listed by a collection on disk right now (other than
+    /// `excluded`), or nil if any collection file can't be read, in which
+    /// case the caller can't be sure a track is unused.
+    func trackIDsInCollections(excluding excluded: UUID) -> Set<UUID>? {
+        var ids = Set<UUID>()
+        for dir in Self.subdirectories(of: layout.collectionsDir) {
+            guard let id = UUID(uuidString: dir.lastPathComponent), id != excluded else { continue }
+            guard let collection = cachedJSON(TrackCollection.self, at: layout.collectionFile(id)) else { return nil }
+            ids.formUnion(collection.trackIDs)
+        }
+        return ids
+    }
+
     static func cloudStatus(of url: URL) -> CloudStatus {
         let keys: Set<URLResourceKey> = [
             .isUbiquitousItemKey,

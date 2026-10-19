@@ -11,6 +11,7 @@ struct UnnamedApp: App {
             RootView()
                 .environment(model)
                 .environment(model.player)
+                .environment(\.liquidGlass, model.liquidGlass && LiquidGlassSupport.isAvailable)
                 .frame(minWidth: 860, minHeight: 560)
         }
         .defaultSize(width: 1320, height: 860)
@@ -21,6 +22,7 @@ struct UnnamedApp: App {
         Settings {
             SettingsView()
                 .environment(model)
+                .environment(\.liquidGlass, model.liquidGlass && LiquidGlassSupport.isAvailable)
         }
     }
 }
@@ -58,11 +60,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 /// Space to play/pause anywhere except while typing, and making sure
 /// playback shortcuts that collide with text editing (⌘← / ⌘→) still edit text.
 enum KeyboardShortcuts {
+    /// The library window (not Settings, a panel or a sheet).
+    static func isMainWindow(_ window: NSWindow?) -> Bool {
+        window?.identifier?.rawValue.hasPrefix("main") == true
+    }
+
     static func handle(_ event: NSEvent) -> NSEvent? {
         let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
         let textView = event.window?.firstResponder as? NSTextView
         let isEditingText = textView?.isEditable == true
 
+        if event.keyCode == 53, AppModel.shared.addMenuOpen, isMainWindow(event.window), event.window?.attachedSheet == nil {
+            withAnimation(.spring(duration: 0.5, bounce: 0.32)) { AppModel.shared.addMenuOpen = false }
+            return nil
+        }
         if event.keyCode == 49, modifiers.isEmpty, !isEditingText {
             AppModel.shared.player.togglePlayPause()
             return nil

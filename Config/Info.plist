@@ -17,6 +17,8 @@
 			</array>
 		</dict>
 	</array>
+	<key>UnsplashAccessKey</key>
+	<string>$(UNSPLASH_ACCESS_KEY)</string>
 	<key>UTExportedTypeDeclarations</key>
 	<array>
 		<dict>

@@ -9,7 +9,8 @@ struct VersionTests {
         let wav = try TestAudio.makeWAV(named: "song", seconds: seconds, in: scratch)
         let store = LibraryStore(root: scratch.appending(path: "Library"))
         await store.load()
-        let id = try #require(await store.importAudio(from: [wav]).first)
+        let collection = store.createCollection(title: "Ideas")
+        let id = try #require(await store.importAudio(from: [wav], into: collection.id).first)
         return (store, id, scratch)
     }
 
@@ -159,8 +160,8 @@ struct VersionTests {
         let v1 = try #require(store.tracks[id]?.currentVersionID)
         let v2 = try #require(await store.addVersion(to: id, from: try TestAudio.makeWAV(named: "b", seconds: 0.5, in: scratch)))
         let defaults = UserDefaults(suiteName: "UnnamedKitTests-\(UUID().uuidString)")!
-        defaults.set(0.0, forKey: "player.volume")
         let player = PlayerController(defaults: defaults)
+        player.setVolume(0)
         player.library = store
 
         player.play(trackID: id, version: v1, in: [id], context: nil)
@@ -180,8 +181,8 @@ struct VersionTests {
         let v1 = try #require(store.tracks[id]?.currentVersionID)
         _ = try #require(await store.addVersion(to: id, from: try TestAudio.makeWAV(named: "b", seconds: 0.5, in: scratch)))
         let defaults = UserDefaults(suiteName: "UnnamedKitTests-\(UUID().uuidString)")!
-        defaults.set(0.0, forKey: "player.volume")
         let player = PlayerController(defaults: defaults)
+        player.setVolume(0)
         player.library = store
 
         player.play(trackID: id, version: v1, in: [id], context: nil)

@@ -17,8 +17,7 @@ public struct LibraryIssue: Identifiable, Sendable, Equatable {
 public struct PendingImport: Identifiable, Hashable, Sendable {
     public let id: UUID
     public let title: String
-    public let collectionID: UUID?
-    public let folderID: UUID?
+    public let collectionID: UUID
 }
 
 /// The in-memory view of a library folder, and the only way the app changes it.
@@ -218,8 +217,17 @@ public final class LibraryStore {
         }
     }
 
-    public func tracks(in collectionID: UUID) -> [Track] {
-        collections[collectionID]?.trackIDs.compactMap { tracks[$0] } ?? []
+    /// A collection's tracks in order. Archived tracks are left out unless `includingArchived`.
+    public func tracks(in collectionID: UUID, includingArchived: Bool = false) -> [Track] {
+        (collections[collectionID]?.trackIDs.compactMap { tracks[$0] } ?? [])
+            .filter { includingArchived || $0.archivedAt == nil }
+    }
+
+    /// Tracks that would be deleted with a collection (not in any other one).
+    public func tracksOnlyIn(_ collectionID: UUID) -> [UUID] {
+        (collections[collectionID]?.trackIDs ?? []).filter { trackID in
+            tracks[trackID] != nil && !collections.values.contains { $0.id != collectionID && $0.trackIDs.contains(trackID) }
+        }
     }
 
     public func collections(containing trackID: UUID) -> [TrackCollection] {
@@ -269,15 +277,23 @@ public final class LibraryStore {
         updateCollection(id) { $0.title = Self.cleanTitle(title, fallback: $0.title) }
     }
 
-    /// Deletes a collection. Its tracks stay in the library unless
-    /// `deleteTracks` is set, in which case tracks that aren't in any other
-    /// collection are deleted too.
-    public func deleteCollection(_ id: UUID, deleteTracks: Bool = false) {
+    /// Deletes a collection along with the tracks that aren't in any other
+    /// collection (everything goes to the Trash). Tracks shared with another
+    /// collection stay. Pass `deleteTracks: false` to keep them all.
+    ///
+    /// Another device may have just added one of these tracks to a collection
+    /// that hasn't synced here yet, so before deleting a track this re-reads
+    /// every collection file on disk; if any can't be read, no tracks are
+    /// deleted (they stay in All Tracks). Everything goes to the Trash.
+    public func deleteCollection(_ id: UUID, deleteTracks: Bool = true) async {
         guard let collection = collections.removeValue(forKey: id) else { return }
         let dir = layout.collectionDir(id)
         enqueue { disk in try await disk.trash(dir) }
         guard deleteTracks else { return }
-        for trackID in collection.trackIDs where !collections.values.contains(where: { $0.trackIDs.contains(trackID) }) {
+        let candidates = collection.trackIDs
+        guard let onDisk = await disk.trackIDsInCollections(excluding: id) else { return }
+        for trackID in candidates where !onDisk.contains(trackID)
+            && !collections.values.contains(where: { $0.trackIDs.contains(trackID) }) {
             deleteTrack(trackID)
         }
     }
@@ -337,25 +353,34 @@ public final class LibraryStore {
 
     // MARK: - Tracks
 
-    /// Copies audio files into the library, optionally into a collection
-    /// and/or directly into a folder. Files that aren't audio are skipped.
+    /// Copies audio files into the library as new tracks in a collection
+    /// (inserted at `index`, or appended). Files that aren't audio are skipped.
     @discardableResult
-    public func importAudio(from urls: [URL], into collectionID: UUID? = nil, at index: Int? = nil, folder folderID: UUID? = nil) async -> [UUID] {
+    public func importAudio(from urls: [URL], into collectionID: UUID, at index: Int? = nil) async -> [UUID] {
+        guard collections[collectionID] != nil else { return [] }
         let audioURLs = urls.filter(AudioAnalyzer.isAudioFile)
         let items = audioURLs.map {
-            PendingImport(id: UUID(), title: $0.deletingPathExtension().lastPathComponent, collectionID: collectionID, folderID: folderID)
+            PendingImport(id: UUID(), title: $0.deletingPathExtension().lastPathComponent, collectionID: collectionID)
         }
         pendingImports.append(contentsOf: items)
         var imported: [UUID] = []
         var position = index
         for (url, item) in zip(audioURLs, items) {
+            // The collection can be deleted while files are still importing.
+            guard collections[collectionID] != nil else {
+                pendingImports.removeAll { $0.id == item.id }
+                continue
+            }
             do {
-                let track = try await importOne(url: url, id: item.id, title: item.title, folderID: folderID)
-                imported.append(track.id)
-                if let collectionID {
-                    addTracks([track.id], to: collectionID, at: position)
-                    position = position.map { $0 + 1 }
+                let track = try await importOne(url: url, id: item.id, title: item.title)
+                guard collections[collectionID] != nil else {
+                    deleteTrack(track.id)
+                    pendingImports.removeAll { $0.id == item.id }
+                    continue
                 }
+                imported.append(track.id)
+                addTracks([track.id], to: collectionID, at: position)
+                position = position.map { $0 + 1 }
             } catch {
                 report(error, title: "Couldn't import “\(url.lastPathComponent)”")
             }
@@ -364,7 +389,7 @@ public final class LibraryStore {
         return imported
     }
 
-    private func importOne(url: URL, id: UUID, title: String, folderID: UUID?) async throws -> Track {
+    private func importOne(url: URL, id: UUID, title: String) async throws -> Track {
         let accessing = url.startAccessingSecurityScopedResource()
         defer { if accessing { url.stopAccessingSecurityScopedResource() } }
 
@@ -376,8 +401,7 @@ public final class LibraryStore {
             title: Self.cleanTitle(title, fallback: "Untitled"),
             audioFileName: fileName,
             originalFileName: url.lastPathComponent,
-            duration: analysis?.duration ?? 0,
-            folderID: folderID.flatMap { folders[$0] != nil ? $0 : nil }
+            duration: analysis?.duration ?? 0
         )
         tracks[id] = track
         cloudStatus[id] = isInCloud ? .uploading : .local
@@ -402,7 +426,8 @@ public final class LibraryStore {
     }
 
     /// Copies a track (audio, notes, comments, artwork). The copy is placed
-    /// right after the original in `collectionID`, if given.
+    /// right after the original in `collectionID`, or else in the first
+    /// collection the original is in (a track always has a collection).
     @discardableResult
     public func duplicateTrack(_ id: UUID, in collectionID: UUID? = nil) async -> UUID? {
         guard let original = tracks[id] else { return nil }
@@ -423,6 +448,7 @@ public final class LibraryStore {
         copy.title = "\(original.title) copy"
         copy.createdAt = .libraryNow
         copy.updatedAt = .libraryNow
+        copy.archivedAt = nil
         tracks[newID] = copy
         notes[newID] = notes[id]
         comments[newID] = comments[id]
@@ -431,8 +457,10 @@ public final class LibraryStore {
         }
         cloudStatus[newID] = isInCloud ? .uploading : .local
         save(copy)
-        if let collectionID, let index = collections[collectionID]?.trackIDs.firstIndex(of: id) {
-            addTracks([newID], to: collectionID, at: index + 1)
+        let home = collectionID.flatMap { collections[$0] != nil ? $0 : nil } ?? collections(containing: id).first?.id
+        if let home {
+            let index = collections[home]?.trackIDs.firstIndex(of: id).map { $0 + 1 }
+            addTracks([newID], to: home, at: index)
         }
         return newID
     }
@@ -566,35 +594,49 @@ public final class LibraryStore {
         case data(Data)
     }
 
-    public func setArtwork(forTrack trackID: UUID, from source: ArtworkSource) async {
+    /// Sets a track's artwork. `credit` names the photographer for Unsplash photos.
+    public func setArtwork(forTrack trackID: UUID, from source: ArtworkSource, credit: ArtworkCredit? = nil) async {
         guard tracks[trackID] != nil else { return }
         let dir = layout.trackDir(trackID)
         guard let fileName = await writeArtwork(source, into: dir, while: { self.tracks[trackID] != nil }),
               let track = tracks[trackID] else { return }
         let old = layout.artworkURL(for: track)
-        updateTrack(trackID) { $0.artworkFileName = fileName }
+        updateTrack(trackID) {
+            $0.artworkFileName = fileName
+            $0.artworkCredit = credit
+        }
         if let old { enqueue { disk in try await disk.remove(old) } }
     }
 
     public func removeArtwork(forTrack trackID: UUID) {
         guard let track = tracks[trackID], let old = layout.artworkURL(for: track) else { return }
-        updateTrack(trackID) { $0.artworkFileName = nil }
+        updateTrack(trackID) {
+            $0.artworkFileName = nil
+            $0.artworkCredit = nil
+        }
         enqueue { disk in try await disk.remove(old) }
     }
 
-    public func setArtwork(forCollection collectionID: UUID, from source: ArtworkSource) async {
+    /// Sets a collection's cover. `credit` names the photographer for Unsplash photos.
+    public func setArtwork(forCollection collectionID: UUID, from source: ArtworkSource, credit: ArtworkCredit? = nil) async {
         guard collections[collectionID] != nil else { return }
         let dir = layout.collectionDir(collectionID)
         guard let fileName = await writeArtwork(source, into: dir, while: { self.collections[collectionID] != nil }),
               let collection = collections[collectionID] else { return }
         let old = layout.artworkURL(for: collection)
-        updateCollection(collectionID) { $0.artworkFileName = fileName }
+        updateCollection(collectionID) {
+            $0.artworkFileName = fileName
+            $0.artworkCredit = credit
+        }
         if let old { enqueue { disk in try await disk.remove(old) } }
     }
 
     public func removeArtwork(forCollection collectionID: UUID) {
         guard let collection = collections[collectionID], let old = layout.artworkURL(for: collection) else { return }
-        updateCollection(collectionID) { $0.artworkFileName = nil }
+        updateCollection(collectionID) {
+            $0.artworkFileName = nil
+            $0.artworkCredit = nil
+        }
         enqueue { disk in try await disk.remove(old) }
     }
 

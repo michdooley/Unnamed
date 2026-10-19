@@ -1,6 +1,6 @@
 import Foundation
 
-/// Folders: a tree for organising collections and loose tracks.
+/// Folders: a tree for organising collections.
 ///
 /// Every item stores its own parent, so moves only rewrite the item that
 /// moved. Because two devices can make conflicting moves while offline, the
@@ -28,28 +28,20 @@ extension LibraryStore {
         collections[collectionID]?.folderID.flatMap { folders[$0] != nil ? $0 : nil }
     }
 
-    /// The folder a track sits in directly, if it still exists.
-    public func folder(ofTrack trackID: UUID) -> UUID? {
-        tracks[trackID]?.folderID.flatMap { folders[$0] != nil ? $0 : nil }
-    }
-
     /// Folders directly inside `parent` (top-level folders when nil), A–Z.
-    public func subfolders(of parent: UUID?) -> [LibraryFolder] {
+    /// Archived ones are left out unless `includingArchived`.
+    public func subfolders(of parent: UUID?, includingArchived: Bool = false) -> [LibraryFolder] {
         folders.values
-            .filter { parentFolder(of: $0.id) == parent }
+            .filter { parentFolder(of: $0.id) == parent && (includingArchived || $0.archivedAt == nil) }
             .sorted { Self.titleOrder($0.title, $0.id, $1.title, $1.id) }
     }
 
     /// Collections directly inside a folder (top-level collections when nil), A–Z.
-    public func collections(inFolder folderID: UUID?) -> [TrackCollection] {
+    /// Archived ones are left out unless `includingArchived`.
+    public func collections(inFolder folderID: UUID?, includingArchived: Bool = false) -> [TrackCollection] {
         collections.values
-            .filter { folder(ofCollection: $0.id) == folderID }
+            .filter { folder(ofCollection: $0.id) == folderID && (includingArchived || $0.archivedAt == nil) }
             .sorted { Self.titleOrder($0.title, $0.id, $1.title, $1.id) }
-    }
-
-    /// Tracks placed directly in a folder, newest first.
-    public func looseTracks(inFolder folderID: UUID) -> [Track] {
-        tracksNewestFirst.filter { folder(ofTrack: $0.id) == folderID }
     }
 
     /// The folders from the top level down to `folderID`, inclusive.
@@ -69,8 +61,25 @@ extension LibraryStore {
     }
 
     /// How many things a folder holds directly.
-    public func contentCount(ofFolder folderID: UUID) -> (folders: Int, collections: Int, tracks: Int) {
-        (subfolders(of: folderID).count, collections(inFolder: folderID).count, looseTracks(inFolder: folderID).count)
+    public func contentCount(ofFolder folderID: UUID) -> (folders: Int, collections: Int) {
+        (subfolders(of: folderID).count, collections(inFolder: folderID).count)
+    }
+
+    /// Every track in a folder's collections (including subfolders), in
+    /// reading order, without repeats.
+    public func trackIDs(inFolder folderID: UUID) -> [UUID] {
+        var seen = Set<UUID>()
+        var result: [UUID] = []
+        func visit(_ folder: UUID) {
+            for collection in collections(inFolder: folder) {
+                for id in collection.trackIDs where tracks[id]?.archivedAt == nil && tracks[id] != nil && seen.insert(id).inserted {
+                    result.append(id)
+                }
+            }
+            for subfolder in subfolders(of: folder) { visit(subfolder.id) }
+        }
+        visit(folderID)
+        return result
     }
 
     // MARK: - Changes
@@ -120,29 +129,31 @@ extension LibraryStore {
         updateCollection(id) { $0.folderID = folderID }
     }
 
-    /// Places a track directly in a folder (or takes it out when nil). This is
-    /// independent of which collections the track is in.
-    public func moveTrack(_ id: UUID, toFolder folderID: UUID?) {
-        guard folderID.map({ folders[$0] != nil }) ?? true else { return }
-        updateTrack(id) { $0.folderID = folderID }
-    }
-
     /// Deletes a folder but nothing in it: its contents move up to its parent.
+    /// The contents of an archived folder stay archived.
     public func deleteFolder(_ id: UUID) {
-        guard folders[id] != nil else { return }
+        guard let folder = folders[id] else { return }
         let parent = parentFolder(of: id)
+        let archivedAt = folder.archivedAt
         for child in folders.values where child.parentID == id {
-            updateFolder(child.id) { $0.parentID = parent }
+            updateFolder(child.id) {
+                $0.parentID = parent
+                $0.archivedAt = $0.archivedAt ?? archivedAt
+            }
         }
         for collection in collections.values where collection.folderID == id {
-            updateCollection(collection.id) { $0.folderID = parent }
-        }
-        for track in tracks.values where track.folderID == id {
-            updateTrack(track.id) { $0.folderID = parent }
+            updateCollection(collection.id) {
+                $0.folderID = parent
+                $0.archivedAt = $0.archivedAt ?? archivedAt
+            }
         }
         folders[id] = nil
         let dir = layout.folderDir(id)
         enqueue { disk in try await disk.trash(dir) }
+    }
+
+    func updateFolderArchive(_ id: UUID, _ archived: Bool) {
+        updateFolder(id) { $0.archivedAt = archived ? ($0.archivedAt ?? .libraryNow) : nil }
     }
 
     private func updateFolder(_ id: UUID, _ change: (inout LibraryFolder) -> Void) {

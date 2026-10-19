@@ -25,8 +25,12 @@ public final class PlayerController {
     public private(set) var isLoading = false
     public private(set) var currentTime: TimeInterval = 0
     public private(set) var duration: TimeInterval = 0
-    public private(set) var volume: Double
+    /// The app's own volume (on top of the system's). Always starts at full,
+    /// so the app never opens muted or quiet.
+    public private(set) var volume: Double = 1
     public var problem: String?
+    /// True while a disc or the scrub bar is held and the music follows the hand.
+    public private(set) var isScratching = false
 
     public var shuffle: Bool { queue.shuffle }
     public var repeatMode: RepeatMode { queue.repeatMode }
@@ -52,20 +56,34 @@ public final class PlayerController {
     @ObservationIgnored private var isSeeking = false
     @ObservationIgnored private let nowPlaying = NowPlayingBridge()
     @ObservationIgnored private let defaults: UserDefaults
+    @ObservationIgnored private let deck = ScratchDeck()
+    @ObservationIgnored private var scratchGeneration = 0
+    /// Where the hand has put the record, in seconds.
+    @ObservationIgnored private var scratchTarget: TimeInterval = 0
+    /// How far the hand has moved the record since the grab, in seconds.
+    @ObservationIgnored private var scratchHand: TimeInterval = 0
+    @ObservationIgnored private var playsAfterScratch = false
+    @ObservationIgnored private var scratchClock: Task<Void, Never>?
+    /// Hand-offs that were lined up to the host clock (for tests).
+    @ObservationIgnored private(set) var timedHandOffs = 0
+    /// AVPlayer's own rate (for tests).
+    var engineRate: Float { player.rate }
 
     private enum Keys {
-        static let volume = "player.volume"
         static let shuffle = "player.shuffle"
         static let repeatMode = "player.repeat"
     }
 
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        volume = defaults.object(forKey: Keys.volume) as? Double ?? 0.85
+        // An older version remembered the volume; forget it.
+        defaults.removeObject(forKey: "player.volume")
         queue.setShuffle(defaults.bool(forKey: Keys.shuffle))
         queue.repeatMode = RepeatMode(rawValue: defaults.string(forKey: Keys.repeatMode) ?? "") ?? .off
         player.volume = Float(volume)
         player.actionAtItemEnd = .pause
+        // Files are local, and scratching needs to start playback at an exact host time.
+        player.automaticallyWaitsToMinimizeStalling = false
         timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(value: 1, timescale: 24), queue: .main) { [weak self] time in
             MainActor.assumeIsolated { self?.timeDidChange(time.seconds) }
         }
@@ -75,9 +93,10 @@ public final class PlayerController {
     // MARK: - Starting playback
 
     /// Plays a collection from the top (or from `trackID`).
+    /// Archived tracks are skipped.
     public func play(collection collectionID: UUID, startingAt trackID: UUID? = nil) {
-        guard let collection = library?.collections[collectionID] else { return }
-        play(trackIDs: collection.trackIDs, startingAt: trackID, context: collectionID)
+        guard let library, library.collections[collectionID] != nil else { return }
+        play(trackIDs: library.tracks(in: collectionID).map(\.id), startingAt: trackID, context: collectionID)
     }
 
     public func play(trackIDs: [UUID], startingAt trackID: UUID? = nil, context: UUID? = nil) {
@@ -151,6 +170,7 @@ public final class PlayerController {
     }
 
     public func resume() {
+        abortScratch(restoringPosition: true)
         guard currentTrackID != nil else { return }
         isPlaying = true
         if player.currentItem == nil {
@@ -162,6 +182,7 @@ public final class PlayerController {
     }
 
     public func pause() {
+        abortScratch(restoringPosition: true)
         isPlaying = false
         player.pause()
         updateNowPlaying()
@@ -184,6 +205,7 @@ public final class PlayerController {
     }
 
     public func seek(to time: TimeInterval) {
+        abortScratch(restoringPosition: false)
         guard currentTrackID != nil else { return }
         let target = max(0, duration > 0 ? min(time, duration) : time)
         currentTime = target
@@ -199,6 +221,13 @@ public final class PlayerController {
                 guard let self, self.seekGeneration == generation else { return }
                 self.isSeeking = false
             }
+        }
+        // AVPlayer doesn't always call back (e.g. a seek made before the item
+        // is ready), and the clock stays frozen until it does. Don't wait forever.
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(1.5))
+            guard let self, self.seekGeneration == generation else { return }
+            self.isSeeking = false
         }
     }
 
@@ -223,10 +252,12 @@ public final class PlayerController {
     public func setVolume(_ value: Double) {
         volume = min(1, max(0, value))
         player.volume = Float(volume)
-        defaults.set(volume, forKey: Keys.volume)
+        deck.setVolume(Float(volume))
     }
 
     public func stop() {
+        abortScratch(restoringPosition: false)
+        deck.forget()
         loadTask?.cancel()
         player.pause()
         player.replaceCurrentItem(with: nil)
@@ -245,12 +276,241 @@ public final class PlayerController {
         nowPlaying.clear()
     }
 
+    // MARK: - Scratching
+
+    /// Seconds of audio in one turn of a disc: a 33⅓ rpm record.
+    public static let secondsPerTurn: TimeInterval = 1.8
+    /// How long a hand takes to stop a spinning record.
+    public static let scratchBrakeTime: TimeInterval = ScratchVoice.brakeTime
+
+    /// Decodes the current track ahead of a scratch (call when the pointer
+    /// comes near something scratchable), so grabbing it is instant.
+    public func prepareScratch() {
+        guard let url = scratchableURL else { return }
+        deck.prepare(url)
+    }
+
+    /// Grabs the record. The scrub bar passes `seconds` to drop the needle
+    /// there; a disc is stopped by the hand where it is (braking briefly if
+    /// it was spinning).
+    public func beginScratch(at seconds: TimeInterval? = nil) {
+        guard let url = scratchableURL else { return }
+        if !isScratching { playsAfterScratch = isPlaying }
+        // Grabbed again while letting go: catch the record as it spins.
+        let spinning = deck.voice.map { (seconds: $0.position.seconds, speed: $0.speed) }
+        scratchGeneration += 1
+        let generation = scratchGeneration
+        isScratching = true
+        scratchHand = 0
+        let feel: ScratchVoice.Feel = seconds == nil ? .disc : .bar
+        runScratchClock()
+
+        // A disc grabbed mid-song: the deck takes over a moment from now,
+        // braking from full speed, and AVPlayer stops at that same instant.
+        if seconds == nil, spinning == nil, player.rate > 0, let track = deck.readyTrack(for: url),
+           let handover = upcomingHandover() {
+            let voice = ScratchVoice(track: track, at: handover.seconds, feel: .disc, velocity: 1, braking: true, startAt: handover.hostTime)
+            if (try? deck.start(voice, volume: Float(volume))) != nil {
+                scratchTarget = handover.seconds
+                player.setRate(0, time: CMTime(seconds: handover.seconds, preferredTimescale: 48_000),
+                               atHostTime: CMClockMakeHostTimeFromSystemUnits(handover.hostTime))
+                return
+            }
+        }
+
+        // Also cancels a hand-off that was about to start AVPlayer.
+        player.pause()
+        deck.stop()
+        scratchTarget = clampedScratchTime(seconds ?? spinning?.seconds ?? currentTime)
+        currentTime = scratchTarget
+        let speed = seconds == nil ? spinning?.speed ?? 0 : 0
+        Task { [weak self] in
+            guard let self, let track = await self.deck.track(for: url), self.scratchGeneration == generation else { return }
+            // If decoding took a moment, the record is wherever the hand has put it by now.
+            let voice = ScratchVoice(track: track, at: self.scratchTarget, feel: feel, velocity: speed, braking: true, hand: self.scratchHand)
+            try? self.deck.start(voice, volume: Float(self.volume))
+        }
+    }
+
+    /// Moves the record to a time (the scrub bar).
+    public func scratch(to seconds: TimeInterval) {
+        guard isScratching else { return }
+        let target = clampedScratchTime(seconds)
+        scratchHand += target - scratchTarget
+        scratchTarget = target
+        deck.voice?.setHand(seconds: scratchHand)
+    }
+
+    /// Turns the record by some seconds of audio (a disc; negative is backwards).
+    public func scratch(by seconds: TimeInterval) {
+        guard isScratching else { return }
+        scratchTarget += seconds
+        scratchHand += seconds
+        deck.voice?.setHand(seconds: scratchHand)
+    }
+
+    /// A host time just ahead, and where AVPlayer's music will be at that moment.
+    private func upcomingHandover(lead: TimeInterval = 0.07) -> (hostTime: UInt64, seconds: TimeInterval)? {
+        guard let timebase = player.currentItem?.timebase else { return nil }
+        let hostTime = HostClock.now + HostClock.ticks(lead)
+        let itemTime = CMSyncConvertTime(CMClockMakeHostTimeFromSystemUnits(hostTime), from: CMClockGetHostTimeClock(), to: timebase)
+        guard itemTime.isValid, itemTime.seconds.isFinite else { return nil }
+        return (hostTime, itemTime.seconds)
+    }
+
+    /// Lets go. If it was playing, the platter spins back up and the music
+    /// carries on from wherever the record ended up; otherwise it stays put.
+    public func endScratch() {
+        guard isScratching else { return }
+        scratchGeneration += 1
+        let generation = scratchGeneration
+        guard let voice = deck.voice else {
+            // Let go before the audio was ready: just move there.
+            finishScratch(at: clampedScratchTime(scratchTarget))
+            return
+        }
+        voice.release(toSpeed: playsAfterScratch ? 1 : 0)
+        Task { [weak self] in
+            guard let self else { return }
+            if self.playsAfterScratch {
+                await self.handOff(from: voice, generation: generation)
+            } else {
+                await self.settle(voice, generation: generation)
+            }
+        }
+    }
+
+    private var scratchableURL: URL? {
+        guard currentTrackID != nil, !isLoading, player.currentItem != nil else { return nil }
+        return loadingURL
+    }
+
+    private func clampedScratchTime(_ seconds: TimeInterval) -> TimeInterval {
+        max(0, duration > 0 ? min(seconds, duration) : seconds)
+    }
+
+    /// Keeps the clock and playhead following the needle.
+    private func runScratchClock() {
+        scratchClock?.cancel()
+        scratchClock = Task { [weak self] in
+            while !Task.isCancelled, let self, self.isScratching {
+                self.currentTime = self.deck.voice?.position.seconds ?? self.clampedScratchTime(self.scratchTarget)
+                try? await Task.sleep(for: .milliseconds(16))
+            }
+        }
+    }
+
+    /// Up to speed: start AVPlayer at the exact host time the needle reaches
+    /// a point just ahead, and fade the deck out at that moment.
+    private func handOff(from voice: ScratchVoice, generation: Int) async {
+        for _ in 0..<60 where !voice.isLocked {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        var lead = 0.2
+        for _ in 0..<3 {
+            guard scratchGeneration == generation else { return }
+            let start = voice.position.seconds + lead
+            guard duration <= 0 || start < duration - 0.1 else { break }
+            let sought = await seekExactly(to: start)
+            guard scratchGeneration == generation else { return }
+            guard sought else { break }
+            if player.status == .readyToPlay, player.currentItem?.status == .readyToPlay {
+                await prerollPlayer()
+                guard scratchGeneration == generation else { return }
+            }
+            let now = voice.position
+            let remaining = start - now.seconds
+            if remaining > 0.03 {
+                let hostStart = now.hostTime + HostClock.ticks(remaining)
+                player.setRate(1, time: .invalid, atHostTime: CMClockMakeHostTimeFromSystemUnits(hostStart))
+                voice.fadeOut(atHostTime: hostStart)
+                let deadline = hostStart + HostClock.ticks(0.3)
+                while scratchGeneration == generation, !voice.isSilent, HostClock.now < deadline {
+                    try? await Task.sleep(for: .milliseconds(10))
+                }
+                guard scratchGeneration == generation else { return }
+                deck.stop()
+                isScratching = false
+                scratchClock?.cancel()
+                isPlaying = true
+                timedHandOffs += 1
+                updateNowPlaying()
+                return
+            }
+            // AVPlayer was slow to get ready; aim further ahead.
+            lead *= 2
+        }
+        guard scratchGeneration == generation else { return }
+        voice.fadeOut()
+        finishScratch(at: voice.position.seconds)
+    }
+
+    /// Paused: wait for the record to stop, then leave the playhead there.
+    private func settle(_ voice: ScratchVoice, generation: Int) async {
+        for _ in 0..<50 where !voice.isResting {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        guard scratchGeneration == generation else { return }
+        voice.fadeOut()
+        for _ in 0..<20 where !voice.isSilent {
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+        guard scratchGeneration == generation else { return }
+        finishScratch(at: voice.position.seconds)
+    }
+
+    /// Back to AVPlayer, at `seconds`.
+    private func finishScratch(at seconds: TimeInterval) {
+        deck.stop()
+        isScratching = false
+        scratchClock?.cancel()
+        seek(to: seconds)
+        if playsAfterScratch {
+            isPlaying = true
+            player.play()
+        }
+        updateNowPlaying()
+    }
+
+    /// Drops a scratch on the spot because another control was used.
+    private func abortScratch(restoringPosition: Bool) {
+        guard isScratching else { return }
+        let position = deck.voice?.position.seconds ?? scratchTarget
+        scratchGeneration += 1
+        deck.stop()
+        isScratching = false
+        scratchClock?.cancel()
+        if restoringPosition { seek(to: position) }
+    }
+
+    private func seekExactly(to seconds: TimeInterval) async -> Bool {
+        await withCheckedContinuation { continuation in
+            player.seek(to: CMTime(seconds: seconds, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { finished in
+                continuation.resume(returning: finished)
+            }
+        }
+    }
+
+    private func prerollPlayer() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            player.preroll(atRate: 1) { _ in continuation.resume() }
+        }
+    }
+
     // MARK: - Library changes
 
     /// Call when the library changes: drops deleted tracks from the queue and
     /// reloads the current track if its audio file was replaced.
     public func libraryDidChange() {
         guard let library else { return }
+        // A collection plays without its archived tracks, so one archived while
+        // it's queued leaves too (the one playing finishes). Lists of archived
+        // things (no collection) play as they are.
+        if contextCollectionID != nil {
+            for id in Set(queue.baseOrder + queue.upNext) where id != currentTrackID && library.tracks[id]?.archivedAt != nil {
+                queue.remove(id)
+            }
+        }
         let referenced = Set(queue.baseOrder + queue.upNext + [currentTrackID].compactMap { $0 })
         let missing = referenced.filter { library.tracks[$0] == nil }
         if !missing.isEmpty {
@@ -310,6 +570,8 @@ public final class PlayerController {
     /// Loads the queue's current track. `version` picks a specific version;
     /// every other caller gets the track's current version.
     private func startCurrent(at time: TimeInterval, autoplay: Bool, version: UUID? = nil) {
+        abortScratch(restoringPosition: false)
+        deck.forget()
         guard let id = queue.current, let library, let track = library.tracks[id] else {
             stop()
             return
@@ -375,15 +637,15 @@ public final class PlayerController {
         if isPlaying {
             player.play()
         }
-        if duration <= 0 {
-            let asset = item.asset
-            let id = currentTrackID
-            Task { [weak self] in
-                guard let seconds = try? await asset.load(.duration).seconds, seconds.isFinite, seconds > 0 else { return }
-                guard let self, self.currentTrackID == id else { return }
-                self.duration = seconds
-                self.updateNowPlaying()
-            }
+        // The library's duration is an estimate made at import (and can be off
+        // for some MP3s); the file's own length is what the playhead runs against.
+        let asset = item.asset
+        let id = currentTrackID
+        Task { [weak self] in
+            guard let seconds = try? await asset.load(.duration).seconds, seconds.isFinite, seconds > 0 else { return }
+            guard let self, self.currentTrackID == id, self.player.currentItem === item, abs(seconds - self.duration) > 0.05 else { return }
+            self.duration = seconds
+            self.updateNowPlaying()
         }
     }
 
@@ -403,7 +665,7 @@ public final class PlayerController {
     }
 
     private func timeDidChange(_ seconds: Double) {
-        guard !isSeeking, player.currentItem != nil, seconds.isFinite else { return }
+        guard !isSeeking, !isScratching, player.currentItem != nil, seconds.isFinite else { return }
         currentTime = seconds
     }
 

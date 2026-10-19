@@ -13,6 +13,7 @@ struct WaveformView: View {
         var hover: Color = .white.opacity(0.5)
 
         static let playerBar = Style(barWidth: 2, gap: 1, played: .white, unplayed: .white.opacity(0.32), hover: .white.opacity(0.6))
+        static let playerBarGlass = Style(barWidth: 2, gap: 1, played: .primary.opacity(0.9), unplayed: .primary.opacity(0.25), playhead: .accentColor, hover: .primary.opacity(0.4))
         static let detail = Style(barWidth: 2, gap: 1.5, played: .primary.opacity(0.85), unplayed: .secondary.opacity(0.35), hover: .primary.opacity(0.35))
         static let preview = Style(barWidth: 1.5, gap: 1.5, played: .secondary.opacity(0.5), unplayed: .secondary.opacity(0.5), playhead: nil)
     }
@@ -32,9 +33,17 @@ struct WaveformView: View {
     var markers: [Marker] = []
     var onSeek: ((Double) -> Void)?
     var onMarkerTap: ((Marker) -> Void)?
+    /// Where a scrub in progress is (nil when there isn't one).
+    var onScrub: ((Double?) -> Void)?
+    /// When set, dragging scratches: the music follows the pointer, and a
+    /// plain click still seeks.
+    var scratch: WaveformScratch?
 
     @State private var hover: Double?
-    @State private var drag: Double?
+    /// Where a scrub is, while one's in progress. Gesture state resets itself
+    /// if the drag is cancelled, so the playhead can't get stuck there.
+    @GestureState private var drag: Double?
+    @State private var scratching = false
 
     var body: some View {
         GeometryReader { geo in
@@ -67,23 +76,49 @@ struct WaveformView: View {
             .contentShape(Rectangle())
             .onContinuousHover { phase in
                 switch phase {
-                case .active(let point): hover = min(1, max(0, point.x / width))
+                case .active(let point):
+                    hover = min(1, max(0, point.x / width))
+                    scratch?.prepare()
                 case .ended: hover = nil
                 }
             }
             .gesture(
                 DragGesture(minimumDistance: 0)
-                    .onChanged { value in
+                    .updating($drag) { value, state, _ in
                         guard onSeek != nil else { return }
-                        drag = min(1, max(0, value.location.x / width))
+                        state = min(1, max(0, value.location.x / width))
+                    }
+                    .onChanged { value in
+                        guard let scratch, onSeek != nil else { return }
+                        let fraction = min(1, max(0, value.location.x / width))
+                        if scratching {
+                            scratch.move(fraction)
+                        } else if Self.isDrag(value) {
+                            scratching = true
+                            scratch.begin(fraction)
+                        }
                     }
                     .onEnded { value in
-                        guard let onSeek else { return }
-                        onSeek(min(1, max(0, value.location.x / width)))
-                        drag = nil
+                        if scratch != nil, Self.isDrag(value) {
+                            // (Already ended if the gesture state reset first.)
+                            if scratching {
+                                scratching = false
+                                scratch?.end()
+                            }
+                        } else {
+                            onSeek?(min(1, max(0, value.location.x / width)))
+                        }
                     },
                 including: onSeek == nil ? .subviews : .all
             )
+            .onChange(of: drag) { _, position in
+                onScrub?(position)
+                // A cancelled drag still lets go of the record.
+                if position == nil, scratching {
+                    scratching = false
+                    scratch?.end()
+                }
+            }
             .overlay(alignment: .topLeading) {
                 if duration > 0, onSeek != nil, let position = drag ?? hover {
                     Text(Format.clock(position * duration))
@@ -109,5 +144,28 @@ struct WaveformView: View {
                 }
             }
         }
+    }
+}
+
+extension WaveformView {
+    fileprivate static func isDrag(_ value: DragGesture.Value) -> Bool {
+        abs(value.translation.width) > 3 || abs(value.translation.height) > 3
+    }
+}
+
+/// Scratching along a waveform: positions are fractions of the track.
+struct WaveformScratch {
+    var prepare: () -> Void
+    var begin: (Double) -> Void
+    var move: (Double) -> Void
+    var end: () -> Void
+
+    static func record(_ player: PlayerController) -> WaveformScratch {
+        WaveformScratch(
+            prepare: { player.prepareScratch() },
+            begin: { player.beginScratch(at: $0 * player.duration) },
+            move: { player.scratch(to: $0 * player.duration) },
+            end: { player.endScratch() }
+        )
     }
 }

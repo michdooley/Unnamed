@@ -99,7 +99,6 @@ struct TrackDetailsSheet: View {
         case .versions: "Versions"
         case .addToCollection: "Add to collection"
         case .moveToCollection: "Move to"
-        case .folder: "Folder"
         }
     }
 
@@ -116,8 +115,6 @@ struct TrackDetailsSheet: View {
             EditTrackPane(store: store, track: track)
         case .versions:
             VersionsPane(store: store, track: track, collectionID: collectionID)
-        case .folder:
-            FolderChooserPane(store: store, trackID: trackID)
         case .addToCollection:
             CollectionChooserPane(store: store, trackID: trackID, mode: .add)
         case .moveToCollection:
@@ -131,7 +128,6 @@ struct TrackDetailsSheet: View {
         let commentCount = store.comments[trackID]?.count ?? 0
         let status = store.cloudStatus[trackID]
         let audioURL = store.audioURL(for: trackID)
-        let folderTitle = store.folder(ofTrack: trackID).flatMap { store.folders[$0]?.title }
         return ScrollView {
             VStack(spacing: 16) {
                 ActionGroup {
@@ -200,10 +196,6 @@ struct TrackDetailsSheet: View {
                         }
                     }
                     RowDivider()
-                    ActionRow(title: "Folder", systemImage: "folder", detail: folderTitle ?? "None", showsChevron: true) {
-                        show(.folder)
-                    }
-                    RowDivider()
                     ActionRow(title: "Duplicate", systemImage: "plus.square.on.square") {
                         model.duplicate(trackID: trackID, in: collectionID)
                     }
@@ -214,13 +206,24 @@ struct TrackDetailsSheet: View {
                 }
 
                 ActionGroup {
-                    if let collectionID {
+                    if let collectionID, store.canRemove(track: trackID, from: collectionID) {
                         ActionRow(title: "Remove from collection", systemImage: "minus.circle") {
                             dismiss()
                             store.removeTracks([trackID], from: collectionID)
                         }
                         RowDivider()
                     }
+                    if track.archivedAt != nil {
+                        ActionRow(title: "Restore", systemImage: "arrow.uturn.backward") {
+                            model.restore(.track(trackID))
+                        }
+                    } else {
+                        ActionRow(title: "Archive", systemImage: "archivebox") {
+                            dismiss()
+                            model.archive(.track(trackID))
+                        }
+                    }
+                    RowDivider()
                     ActionRow(title: "Delete", systemImage: "trash", role: .destructive) {
                         confirmingDelete = true
                     }
@@ -369,7 +372,7 @@ private struct TrackSummary: View {
     }
 
     private var queue: [UUID] {
-        collectionID.flatMap { store.collections[$0]?.trackIDs } ?? [track.id]
+        collectionID.flatMap { id in store.collections[id] == nil ? nil : store.tracks(in: id).map(\.id) } ?? [track.id]
     }
 
     private func togglePlay() {
@@ -529,7 +532,7 @@ private struct CommentRow: View {
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
             TimestampChip(time: comment.timestamp) {
-                let queue = collectionID.flatMap { store.collections[$0]?.trackIDs } ?? [trackID]
+                let queue = collectionID.flatMap { id in store.collections[id] == nil ? nil : store.tracks(in: id).map(\.id) } ?? [trackID]
                 player.play(trackID: trackID, version: version, at: comment.timestamp, in: queue, context: collectionID)
             }
             VStack(alignment: .leading, spacing: 4) {
@@ -594,6 +597,7 @@ private struct EditTrackPane: View {
     @State private var title = ""
     @State private var bpm = ""
     @State private var key = ""
+    @State private var browsingUnsplash: ArtworkTarget?
     /// What the fields held when last loaded or saved, so only real edits are
     /// written (and a rename synced from another device isn't overwritten).
     @State private var saved = (title: "", bpm: "", key: "")
@@ -615,9 +619,15 @@ private struct EditTrackPane: View {
                     TrackArtworkView(trackID: track.id, cornerRadius: 8, pixelSize: 160)
                         .frame(width: 56, height: 56)
                     VStack(alignment: .leading, spacing: 6) {
-                        Button("Choose Image…") { model.chooseArtwork(forTrack: track.id) }
+                        HStack {
+                            Button("Upload Image…") { model.chooseArtwork(forTrack: track.id) }
+                            Button("Browse Unsplash…") { browsingUnsplash = .track(track.id) }
+                        }
                         if track.artworkFileName != nil {
                             Button("Use Collection Artwork") { store.removeArtwork(forTrack: track.id) }
+                        }
+                        if let credit = track.artworkCredit {
+                            ArtworkCreditLine(credit: credit)
                         }
                     }
                 }
@@ -643,6 +653,11 @@ private struct EditTrackPane: View {
         }
         .formStyle(.grouped)
         .scrollContentBackground(.hidden)
+        // From inside the details sheet, the picker stacks on top of it.
+        .sheet(item: $browsingUnsplash) { target in
+            UnsplashPicker(target: target)
+                .environment(model)
+        }
         .onAppear {
             title = track.title
             bpm = track.bpm.map { String(format: "%g", $0) } ?? ""
@@ -698,7 +713,7 @@ private struct CollectionChooserPane: View {
     @State private var newName = ""
 
     var body: some View {
-        let collections = model.orderedCollections.filter { collection in
+        let collections = model.activeCollections.filter { collection in
             if case .move(let source) = mode { return collection.id != source }
             return true
         }
@@ -748,6 +763,8 @@ private struct CollectionChooserPane: View {
         switch mode {
         case .add:
             if contains {
+                // Keep it somewhere visible (use Delete to remove a track entirely).
+                guard store.canRemove(track: trackID, from: collectionID) else { return }
                 store.removeTracks([trackID], from: collectionID)
             } else {
                 store.addTracks([trackID], to: collectionID)
@@ -847,7 +864,7 @@ private struct VersionRow: View {
                 if isLoaded {
                     player.togglePlayPause()
                 } else {
-                    let queue = collectionID.flatMap { store.collections[$0]?.trackIDs } ?? [track.id]
+                    let queue = collectionID.flatMap { id in store.collections[id] == nil ? nil : store.tracks(in: id).map(\.id) } ?? [track.id]
                     player.play(trackID: track.id, version: version.id, in: queue, context: collectionID)
                 }
             } label: {
@@ -897,7 +914,7 @@ private struct VersionRow: View {
                     showsPlayhead: isLoaded,
                     duration: version.duration,
                     onSeek: { fraction in
-                        let queue = collectionID.flatMap { store.collections[$0]?.trackIDs } ?? [track.id]
+                        let queue = collectionID.flatMap { id in store.collections[id] == nil ? nil : store.tracks(in: id).map(\.id) } ?? [track.id]
                         player.play(trackID: track.id, version: version.id, at: fraction * version.duration, in: queue, context: collectionID)
                     }
                 )
@@ -942,94 +959,6 @@ private struct VersionRow: View {
     private func saveName() {
         store.renameVersion(version.id, of: track.id, to: name)
         renaming = false
-    }
-}
-
-// MARK: - Folder
-
-/// Puts the track directly in a folder (independent of its collections).
-private struct FolderChooserPane: View {
-    @Environment(AppModel.self) private var model
-    let store: LibraryStore
-    let trackID: UUID
-
-    @State private var newName = ""
-
-    var body: some View {
-        let current = store.folder(ofTrack: trackID)
-        ScrollView {
-            VStack(spacing: 16) {
-                ActionGroup {
-                    row(title: "None", depth: 0, systemImage: "tray", selected: current == nil) {
-                        store.moveTrack(trackID, toFolder: nil)
-                    }
-                    ForEach(entries, id: \.folder.id) { entry in
-                        RowDivider()
-                        row(title: entry.folder.title, depth: entry.depth, systemImage: "folder", selected: current == entry.folder.id) {
-                            store.moveTrack(trackID, toFolder: entry.folder.id)
-                        }
-                    }
-                }
-                HStack {
-                    TextField("New folder", text: $newName)
-                        .textFieldStyle(.roundedBorder)
-                        .onSubmit(createFolder)
-                    Button("Create", action: createFolder)
-                        .disabled(newName.trimmingCharacters(in: .whitespaces).isEmpty)
-                }
-                Text("A track can sit in a folder on its own, and also be in any number of collections.")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .padding(.horizontal, 24)
-            .padding(.bottom, 24)
-        }
-    }
-
-    private func row(title: String, depth: Int, systemImage: String, selected: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: 10) {
-                Image(systemName: systemImage)
-                    .font(.system(size: 14))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 20)
-                Text(title)
-                    .font(.system(size: 15))
-                    .lineLimit(1)
-                Spacer()
-                if selected {
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(Color.accentColor)
-                }
-            }
-            .padding(.leading, 14 + CGFloat(depth) * 18)
-            .padding(.trailing, 14)
-            .frame(height: 44)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-
-    private var entries: [(folder: LibraryFolder, depth: Int)] {
-        var result: [(LibraryFolder, Int)] = []
-        func visit(_ parent: UUID?, depth: Int) {
-            for folder in store.subfolders(of: parent) {
-                result.append((folder, depth))
-                visit(folder.id, depth: depth + 1)
-            }
-        }
-        visit(nil, depth: 0)
-        return result
-    }
-
-    private func createFolder() {
-        let name = newName.trimmingCharacters(in: .whitespaces)
-        guard !name.isEmpty else { return }
-        let folder = store.createFolder(title: name)
-        store.moveTrack(trackID, toFolder: folder.id)
-        newName = ""
     }
 }
 

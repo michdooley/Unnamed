@@ -10,30 +10,32 @@ struct FolderTests {
         return store
     }
 
-    @Test func foldersHoldFoldersCollectionsAndTracks() async throws {
+    @Test func foldersHoldFoldersAndCollections() async throws {
         let scratch = try TestAudio.temporaryDirectory()
-        let wav = try TestAudio.makeWAV(named: "loose", seconds: 0.2, in: scratch)
+        let wav = try TestAudio.makeWAV(named: "song", seconds: 0.2, in: scratch)
         let store = try await makeStore()
 
         let records = store.createFolder(title: "2026 Records")
         let ep = store.createFolder(title: "EP", in: records.id)
         let album = store.createCollection(title: "Album", in: records.id)
-        let loose = try #require(await store.importAudio(from: [wav], folder: ep.id).first)
+        let demos = store.createCollection(title: "Demos", in: ep.id)
+        let song = try #require(await store.importAudio(from: [wav], into: demos.id).first)
 
         #expect(store.subfolders(of: nil).map(\.title) == ["2026 Records"])
         #expect(store.subfolders(of: records.id).map(\.title) == ["EP"])
         #expect(store.collections(inFolder: records.id).map(\.id) == [album.id])
         #expect(store.collections(inFolder: nil).isEmpty)
-        #expect(store.looseTracks(inFolder: ep.id).map(\.id) == [loose])
         #expect(store.folderPath(to: ep.id).map(\.title) == ["2026 Records", "EP"])
-        #expect(store.contentCount(ofFolder: records.id) == (1, 1, 0))
+        #expect(store.contentCount(ofFolder: records.id) == (1, 1))
+        // Everything playable in a folder, subfolders included.
+        #expect(store.trackIDs(inFolder: records.id) == [song])
         await store.flush()
 
         let reopened = LibraryStore(root: store.root)
         await reopened.load()
         #expect(reopened.folders == store.folders)
         #expect(reopened.folder(ofCollection: album.id) == records.id)
-        #expect(reopened.folder(ofTrack: loose) == ep.id)
+        #expect(reopened.folder(ofCollection: demos.id) == ep.id)
     }
 
     @Test func aFolderCantMoveIntoItself() async throws {

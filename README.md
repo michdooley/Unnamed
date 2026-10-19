@@ -14,16 +14,19 @@ Your library is **a plain folder you own**. Put it in iCloud Drive and it syncs 
 
 - **Import** WAV, MP3, AIFF, M4A/AAC, FLAC, CAF, or anything else macOS can play. Use the Add Tracks button, drag files or whole folders into the window, drop them on the Dock icon, or use Open With.
 - **Collections**: albums, EPs, mixtapes, sets of sketches. A track can be in several collections. Reorder by dragging, add tracks you've already uploaded, and move or duplicate tracks between collections.
-- **Folders** for organizing. A folder can hold subfolders, collections and loose tracks, nested as deep as you like. Drag things into folders in the sidebar or on a folder's page.
+- **Folders** for organizing collections, nested as deep as you like. Songs live in collections; folders hold collections and other folders. Drag things into folders in the sidebar or on a folder's page.
 - **Version history**: upload a new version of a track and the old ones are kept. Play any version, name it ("rough mix", "with vocals"), make it current again, or export it. Comments belong to the version they were made on.
-- **Artwork** for collections and individual tracks. Click the cover or drop an image on it. Tracks without their own art take on their collection's look.
+- **Artwork** for collections and individual tracks: click an empty cover or right-click → Cover Art to upload an image, drop one on the cover, or pick a photo from **Unsplash** (the photographer is credited under the cover). Tracks without their own art take on their collection's look.
 - **Waveform player**: a floating player with a scrubbable waveform, play/pause, next/previous, shuffle, repeat (all/one), volume and an up-next queue. Media keys and Control Center work too.
+- **Scratching**: grab the spinning disc (in the player, or the record behind a collection's cover) or drag along the waveform, and the music follows your hand like a DJ's, pitch, backwards and all. Grabbing brakes the record to a stop; letting go spins it back up and playback carries on, lined up to the sample. Dragging along the waveform at about playing speed plays the melody smoothly.
 - **Timestamped comments**: start typing while a track plays and the comment pins to that moment (and that version). Comments show as markers on the waveform; click one to jump there.
 - **Notes** per track, for lyrics, chords and to-dos.
+- **Archive** tracks, collections and folders: out of sight, not deleted. Archived things leave Home, All Tracks, search and playback, and wait under Archived in the sidebar until you restore them to exactly where they were.
 - **Search** across titles, file names, notes, comments, key and BPM.
 - **iCloud aware**: tracks that aren't downloaded yet show a cloud badge and download when played. Use "Make available offline" / "Remove download" to manage space.
 - **Export** a track (or any version), or a whole collection as numbered files. Drag a track straight into Finder or your DAW.
-- **A Metal welcome screen**: slowly spinning CDs, drawn per pixel with a small diffraction model, whose rainbow sheen follows your mouse.
+- **A Metal welcome screen**: slowly spinning CDs, drawn per pixel with a small diffraction model, whose rainbow sheen follows your mouse. The same shader draws the launch screen, the "+" button's open state and the app icon. On a collection's page, the playing record gets a lighter sheen of its own and spins up and coasts down with playback.
+- **Liquid Glass** (macOS 26, on by default; Settings → Appearance): the player, buttons and toasts turn to glass, the window takes on the colours of the artwork you're looking at or listening to, a collection's play button and the playhead take their colour from the cover, a glass bead rides the playhead, and the "+" melts out of the player and opens into glass bubbles.
 
 ## Getting started
 
@@ -49,6 +52,16 @@ PRODUCT_BUNDLE_IDENTIFIER = com.yourname.Unnamed
 ```
 
 A free Apple ID is enough. The app doesn't use CloudKit or any paid capability.
+
+### Unsplash
+
+The cover-art picker can browse Unsplash. Its API needs a free Access Key: create an app at [unsplash.com/developers](https://unsplash.com/developers). Either paste the key in the app's Settings, or build it in by adding `UNSPLASH_ACCESS_KEY = …` to `Config/Signing.local.xcconfig`.
+
+The chosen photo is saved into your library as the cover (so it works offline and syncs), and the photographer is credited under it. Unsplash's API guidelines prefer apps to hotlink photos, which is fine for a personal demo key but should be revisited before applying for Unsplash production access.
+
+### App icon
+
+The icon is rendered from the CD shader itself. After changing the shader, run `Scripts/make-icon.sh` to regenerate every size.
 
 ## How sync works
 

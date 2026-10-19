@@ -7,6 +7,8 @@ struct MainView: View {
     let store: LibraryStore
 
     @FocusState private var searchFieldFocused: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.liquidGlass) private var glass
 
     var body: some View {
         @Bindable var model = model
@@ -16,11 +18,29 @@ struct MainView: View {
         } detail: {
             detail
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background { ambience }
                 .background(Color(nsColor: .textBackgroundColor))
+                // Clicking anywhere else closes the glass "+" menu.
+                .overlay {
+                    if model.addMenuOpen, glass {
+                        Color.clear
+                            .contentShape(Rectangle())
+                            .onTapGesture { withAnimation(.spring(duration: 0.5, bounce: 0.32)) { model.addMenuOpen = false } }
+                    }
+                }
+                .onChange(of: presentsSheet) { _, presents in
+                    if presents { model.addMenuOpen = false }
+                }
                 .safeAreaInset(edge: .bottom, spacing: 0) {
-                    PlayerDock(store: store)
-                        .padding(.bottom, 18)
-                        .padding(.top, 6)
+                    VStack(spacing: 12) {
+                        if let toast = model.toast {
+                            ToastView(toast: toast) { model.toast = nil }
+                                .transition(.move(edge: .bottom).combined(with: .opacity))
+                        }
+                        PlayerDock(store: store)
+                    }
+                    .padding(.bottom, 18)
+                    .padding(.top, 6)
                 }
         }
         .navigationTitle("Unnamed")
@@ -62,6 +82,7 @@ struct MainView: View {
             if !text.isEmpty, model.selection != .search { model.selection = .search }
         }
         .onChange(of: model.selection) { _, selection in
+            model.addMenuOpen = false
             if selection == .search { searchFieldFocused = true }
         }
         .onChange(of: player.contextCollectionID) { _, id in
@@ -74,6 +95,10 @@ struct MainView: View {
             TrackDetailsSheet(trackID: route.trackID, collectionID: route.collectionID)
                 .environment(model)
                 .environment(player)
+        }
+        .sheet(item: $model.unsplashTarget) { target in
+            UnsplashPicker(target: target)
+                .environment(model)
         }
         .sheet(item: $model.namePrompt) { prompt in
             NamePromptSheet(prompt: prompt)
@@ -96,7 +121,6 @@ struct MainView: View {
                 Button("Delete Track", role: .destructive) { model.confirmDeletion(deletion) }
             case .collection:
                 Button("Delete Collection", role: .destructive) { model.confirmDeletion(deletion) }
-                Button("Delete Collection and Its Tracks", role: .destructive) { model.confirmDeletion(deletion, deleteTracks: true) }
             case .folder:
                 Button("Delete Folder", role: .destructive) { model.confirmDeletion(deletion) }
             }
@@ -105,8 +129,14 @@ struct MainView: View {
             switch deletion {
             case .track:
                 Text("The track, its notes and comments move to the Trash, and it's removed from every collection.")
-            case .collection:
-                Text("Deleting just the collection keeps its tracks in All Tracks. Deleting its tracks too only removes tracks that aren't in another collection.")
+            case .collection(let id):
+                let count = store.tracksOnlyIn(id).count
+                let shared = (store.collections[id]?.trackIDs.count ?? 0) - count
+                Text(count == 0
+                     ? (store.collections[id]?.trackIDs.isEmpty ?? true
+                        ? "The collection moves to the Trash."
+                        : "The collection moves to the Trash. Its tracks are kept, since they're also in other collections.")
+                     : "The collection and its \(Format.trackCount(count)) (with every version, note and comment) move to the Trash.\(shared > 0 ? " \(Format.trackCount(shared)) also in other collections will be kept." : "")")
             case .folder(let id):
                 Text("Nothing inside is deleted: its contents move to \(store.parentFolder(of: id).flatMap { store.folders[$0]?.title }.map { "“\($0)”" } ?? "the top level").")
             }
@@ -122,8 +152,53 @@ struct MainView: View {
         }
     }
 
-    @ViewBuilder
+    /// The current page, pushed in from the right when going deeper (into a
+    /// folder or collection) and from the left when coming back out.
     private var detail: some View {
+        ZStack {
+            page
+                .id(model.selection ?? .home)
+                .transition(.asymmetric(insertion: insertion, removal: .opacity))
+        }
+        .animation(reduceMotion ? nil : .spring(duration: 0.42, bounce: 0.08), value: model.selection)
+    }
+
+    private var presentsSheet: Bool {
+        model.detail != nil || model.namePrompt != nil || model.unsplashTarget != nil
+            || model.pickerCollectionID != nil || model.pendingDeletion != nil
+    }
+
+    /// Liquid Glass mode washes the window in the cover of the collection
+    /// you're looking at, or of whatever's playing, and crossfades as it changes.
+    private var ambience: some View {
+        let art: (url: URL?, seed: UUID)? = {
+            guard glass else { return nil }
+            if case .collection(let id) = model.selection, store.collections[id] != nil {
+                return (store.artworkURL(forCollection: id), id)
+            }
+            return player.currentTrackID.map { model.artwork(forTrack: $0, in: player.contextCollectionID) }
+        }()
+        let key = art.map { "\($0.seed)\($0.url?.lastPathComponent ?? "")" }
+        return ZStack {
+            if let art {
+                AmbientArtwork(url: art.url, seed: art.seed)
+                    .id(key)
+                    .transition(.opacity)
+            }
+        }
+        .animation(.easeInOut(duration: 0.9), value: key)
+    }
+
+    private var insertion: AnyTransition {
+        switch model.navigationDirection {
+        case .forward: .offset(x: 80).combined(with: .opacity)
+        case .back: .offset(x: -80).combined(with: .opacity)
+        case .lateral: .opacity
+        }
+    }
+
+    @ViewBuilder
+    private var page: some View {
         switch model.selection ?? .home {
         case .home:
             HomeView(store: store)
@@ -131,17 +206,17 @@ struct MainView: View {
             AllTracksView(store: store)
         case .search:
             SearchView(store: store)
+        case .archive:
+            ArchiveView(store: store)
         case .collection(let id):
             if store.collections[id] != nil {
                 CollectionView(store: store, collectionID: id)
-                    .id(id)
             } else {
                 HomeView(store: store)
             }
         case .folder(let id):
             if store.folders[id] != nil {
                 FolderView(store: store, folderID: id)
-                    .id(id)
             } else {
                 HomeView(store: store)
             }
@@ -210,20 +285,31 @@ private struct Breadcrumb: View {
         case .home: return []
         case .allTracks: return [("All Tracks", nil)]
         case .search: return [("Search", nil)]
+        case .archive: return [("Archived", nil)]
         case .collection(let id):
-            return path(store.folder(ofCollection: id)) + [(store.collections[id]?.title ?? "", .collection(id))]
+            return archivedPrefix(.collection(id)) + path(store.folder(ofCollection: id)) + [(store.collections[id]?.title ?? "", .collection(id))]
         case .folder(let id):
-            return path(id)
+            return archivedPrefix(.folder(id)) + path(id)
         }
+    }
+
+    /// Archived pages are reached through Archived, so the path starts there.
+    private func archivedPrefix(_ item: SidebarItem) -> [(title: String, destination: SidebarItem?)] {
+        model.archivedRoot(of: item) == nil ? [] : [("Archived", .archive)]
     }
 }
 
 /// The floating player and the "+" button at the bottom of the window.
-private struct PlayerDock: View {
+struct PlayerDock: View {
     @Environment(AppModel.self) private var model
     @Environment(PlayerController.self) private var player
     let store: LibraryStore
-    @State private var showingAddMenu = false
+    @Environment(\.liquidGlass) private var glass
+    /// The player, the "+" and its options share one glass container, so
+    /// they melt into and out of each other.
+    @Namespace private var glassSpace
+    /// Slow motion, for looking at the melt frame by frame (debug).
+    static var animationSpeed = 1.0
 
     var body: some View {
         // Falls back to a slimmer player so a narrow window never overflows.
@@ -234,47 +320,48 @@ private struct PlayerDock: View {
         }
         .padding(.horizontal, 16)
         .animation(.spring(duration: 0.4), value: player.hasTrack)
+        // Coming back out of a collection, the "+" oozes out of the player
+        // as the player slides over to make room.
+        .animation(.spring(duration: 0.6, bounce: 0.28).speed(Self.animationSpeed), value: showsAddButton)
     }
 
     private func dock(_ density: PlayerBar.Density) -> some View {
-        HStack(spacing: 14) {
-            if player.hasTrack {
-                PlayerBar(store: store, density: density)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-            if showsAddButton {
-                Button {
-                    showingAddMenu = true
-                } label: {
-                    Image(systemName: "plus")
-                        .font(.system(size: 22, weight: .medium))
-                        .foregroundStyle(.white)
-                        .frame(width: 58, height: 58)
-                        .background(Circle().fill(Color(white: 0.1)))
-                        .shadow(color: .black.opacity(0.22), radius: 16, y: 8)
-                        .contentShape(Circle())
+        GlassGroup(enabled: glass, spacing: 10) {
+            HStack(spacing: 0) {
+                if player.hasTrack {
+                    PlayerBar(store: store, density: density)
+                        .glassID("player", in: glassSpace, enabled: glass)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
-                .buttonStyle(.plain)
-                .help("New collection, folder or tracks")
-                .popover(isPresented: $showingAddMenu, arrowEdge: .top) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        PopoverRow(title: "New Collection", systemImage: "square.stack") {
-                            showingAddMenu = false
-                            model.promptNewCollection()
-                        }
-                        PopoverRow(title: "New Folder", systemImage: "folder.badge.plus") {
-                            showingAddMenu = false
-                            model.promptNewFolder()
-                        }
-                        PopoverRow(title: "Add Tracks…", systemImage: "waveform.badge.plus") {
-                            showingAddMenu = false
-                            model.importAudio(into: model.selectedCollectionID, folder: model.selectedFolderID)
-                        }
-                    }
-                    .padding(6)
-                    .frame(width: 220)
+                if #available(macOS 26, *), glass, player.hasTrack {
+                    // Always there, tucked into the player's end when it isn't
+                    // wanted, so it melts in and out of the bar.
+                    GlassAddButton(space: glassSpace, tucked: !showsAddButton)
+                        .frame(width: showsAddButton ? Self.gap + 58 : 0, alignment: .trailing)
+                        .help("New collection or folder")
+                } else if showsAddButton {
+                    addButton
+                        .padding(.leading, player.hasTrack ? Self.gap : 0)
                 }
             }
+        }
+    }
+
+    private static let gap: CGFloat = 14
+
+    @ViewBuilder
+    private var addButton: some View {
+        if #available(macOS 26, *), glass {
+            GlassAddButton(space: glassSpace)
+                .help("New collection or folder")
+                .transition(.scale(scale: 0.5).combined(with: .opacity))
+        } else {
+            @Bindable var model = model
+            AddButton(isOpen: $model.addMenuOpen)
+                .help("New collection or folder")
+                .popover(isPresented: $model.addMenuOpen, arrowEdge: .top) {
+                    AddMenu { model.addMenuOpen = false }
+                }
         }
     }
 
@@ -283,6 +370,27 @@ private struct PlayerDock: View {
         case .home, .allTracks, .folder: true
         default: false
         }
+    }
+}
+
+/// What the "+" offers: a collection, a folder, or a collection made from files.
+struct AddMenu: View {
+    @Environment(AppModel.self) private var model
+    var dismiss: () -> Void = {}
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            ForEach(AddOption.allCases) { option in
+                PopoverRow(title: option.title, systemImage: option.systemImage) {
+                    dismiss()
+                    option.perform(model)
+                }
+            }
+        }
+        .padding(6)
+        .frame(minWidth: 220)
+        // Wide enough for the longest label, never truncated.
+        .fixedSize()
     }
 }
 

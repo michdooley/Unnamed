@@ -113,9 +113,11 @@ float4 shadeDisc(float2 position, float2 center, float radius, float angle,
 
 /// discs: 6 floats per disc — centre x, centre y, radius, rotation (radians),
 /// kind (0 silver, 1 gold, 2 blue), unused.
+/// Works over any background, including a transparent one: the result is
+/// premultiplied, like SwiftUI's colours.
 [[ stitchable ]] half4 cdField(float2 position, half4 color, float2 size, float2 light,
                                float hover, device const float *discs, int count) {
-    float3 background = float3(color.rgb);
+    float4 result = float4(color);
     int n = count / 6;
 
     // Soft drop shadows first, so discs sit above the background.
@@ -126,7 +128,7 @@ float4 shadeDisc(float2 position, float2 center, float radius, float angle,
         float d = length(position - center - float2(0.0, radius * 0.06));
         shade = max(shade, (1.0 - smoothstep(radius * 0.88, radius * 1.14, d)) * 0.5);
     }
-    float3 result = background * (1.0 - shade);
+    result = float4(0.0, 0.0, 0.0, shade) + result * (1.0 - shade);
 
     for (int i = 0; i < n; i++) {
         float4 disc = shadeDisc(position,
@@ -135,7 +137,46 @@ float4 shadeDisc(float2 position, float2 center, float radius, float angle,
                                 discs[i * 6 + 3],
                                 discs[i * 6 + 4],
                                 light, hover);
-        result = disc.rgb + result * (1.0 - disc.a);
+        result = disc + result * (1.0 - disc.a);
     }
+    return half4(result);
+}
+
+/// A light CD sheen over an existing disc image (the collection's record):
+/// the same diffraction band and glint as above, screened onto the pixels so
+/// the artwork shows through. The band stays put while the disc turns under
+/// it, like a real CD under a lamp.
+[[ stitchable ]] half4 cdSheen(float2 position, half4 color, float2 size, float2 light, float strength) {
+    if (color.a <= 0.001h) {
+        return color;
+    }
+    float2 center = size * 0.5;
+    float radius = min(size.x, size.y) * 0.5;
+    float2 p = position - center;
+    float r = length(p);
+    float rn = r / radius;
+    float2 radial = p / max(r, 1e-4);
+    float2 tangent = float2(-radial.y, radial.x);
+
+    float3 toLight = normalize(float3(light - position, radius * 1.1));
+    float3 halfVector = normalize(toLight + float3(0.0, 0.0, 1.0));
+
+    float u = abs(dot(halfVector.xy, radial));
+    float3 rainbow = float3(0.0);
+    for (int order = 1; order <= 3; order++) {
+        float wavelength = 1600.0 * u / float(order);
+        float visible = smoothstep(380.0, 430.0, wavelength) * (1.0 - smoothstep(660.0, 720.0, wavelength));
+        rainbow += spectral(wavelength) * visible / float(order);
+    }
+    float alongGrooves = dot(halfVector.xy, tangent);
+    float band = exp(-alongGrooves * alongGrooves * 22.0);
+    float data = smoothstep(0.24, 0.32, rn) * (1.0 - smoothstep(0.93, 0.99, rn));
+    float glint = pow(saturate(halfVector.z), 50.0);
+
+    float3 add = saturate((rainbow * band + glint * 0.35) * data * strength);
+    float3 base = float3(color.rgb);
+    float alpha = float(color.a);
+    // Screen blend in premultiplied space: brightens without washing out.
+    float3 result = base + add * (alpha - base);
     return half4(half3(result), color.a);
 }

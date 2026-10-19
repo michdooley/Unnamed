@@ -18,8 +18,8 @@ struct RegressionTests {
 
     private func makePlayer(_ store: LibraryStore) -> PlayerController {
         let defaults = UserDefaults(suiteName: "UnnamedKitTests-\(UUID().uuidString)")!
-        defaults.set(0.0, forKey: "player.volume")
         let player = PlayerController(defaults: defaults)
+        player.setVolume(0)
         player.library = store
         return player
     }
@@ -67,5 +67,59 @@ struct RegressionTests {
         }
         #expect(rendered)
         player.stop()
+    }
+
+    @Test func deletingACollectionKeepsTracksAnotherDeviceJustFiled() async throws {
+        let (store, collection, ids) = try await makeLibrary(trackCount: 2)
+        await store.flush()
+        // Another device put the first track in a collection this Mac hasn't loaded yet.
+        let other = TrackCollection(title: "Live", trackIDs: [ids[0]])
+        try LibraryJSON.encoder().encode(other).write(to: store.layout.collectionFile(other.id).creatingParent())
+
+        await store.deleteCollection(collection.id)
+
+        #expect(store.tracks[ids[0]] != nil)
+        #expect(store.tracks[ids[1]] == nil)
+    }
+
+    @Test func anUnreadableCollectionFileMeansNoTracksAreDeleted() async throws {
+        let (store, collection, ids) = try await makeLibrary(trackCount: 2)
+        await store.flush()
+        try Data("{ half-synced".utf8).write(to: store.layout.collectionFile(UUID()).creatingParent())
+
+        await store.deleteCollection(collection.id)
+
+        #expect(store.collections[collection.id] == nil)
+        #expect(Set(store.tracks.keys) == Set(ids))
+    }
+
+    @Test func theClockKeepsRunningAfterASeekBeforeTheTrackIsReady() async throws {
+        let scratch = try TestAudio.temporaryDirectory()
+        let url = try TestAudio.makeWAV(named: "long", seconds: 4, in: scratch)
+        let store = LibraryStore(root: scratch.appending(path: "Library"))
+        await store.load()
+        let collection = store.createCollection(title: "C")
+        let ids = await store.importAudio(from: [url], into: collection.id)
+        let player = makePlayer(store)
+
+        player.play(trackID: ids[0], at: 0.5, in: ids, context: collection.id)
+        player.seek(to: 0.6)
+        try await Task.sleep(for: .seconds(2.2))
+
+        #expect(player.currentTime > 0.9)
+        player.stop()
+    }
+
+    @Test func duplicatingWithoutACollectionKeepsTheCopyInOne() async throws {
+        let (store, collection, ids) = try await makeLibrary(trackCount: 1)
+        let copy = try #require(await store.duplicateTrack(ids[0], in: nil))
+        #expect(store.collections[collection.id]?.trackIDs == [ids[0], copy])
+    }
+}
+
+extension URL {
+    func creatingParent() throws -> URL {
+        try FileManager.default.createDirectory(at: deletingLastPathComponent(), withIntermediateDirectories: true)
+        return self
     }
 }

@@ -16,11 +16,13 @@ struct HomeView: View {
                         EmptyHome()
                     } else {
                         CenteredFlowLayout(spacing: 48, rowSpacing: 44) {
-                            ForEach(folders) { folder in
+                            ForEach(Array(folders.enumerated()), id: \.element.id) { index, folder in
                                 FolderCard(store: store, folder: folder)
+                                    .cascadeIn(index)
                             }
-                            ForEach(collections) { collection in
+                            ForEach(Array(collections.enumerated()), id: \.element.id) { index, collection in
                                 CollectionCard(store: store, collection: collection)
+                                    .cascadeIn(folders.count + index)
                             }
                         }
                         .padding(.horizontal, 48)
@@ -30,6 +32,7 @@ struct HomeView: View {
                 .frame(maxWidth: .infinity, minHeight: geo.size.height)
             }
         }
+        .pageEntrance()
         .dropHighlight(isTargeted, cornerRadius: 0)
         .onDrop(of: DropPayload.acceptedTypes, isTargeted: $isTargeted) { providers in
             Task { await importDrop(providers) }
@@ -37,23 +40,10 @@ struct HomeView: View {
         }
     }
 
-    /// Items dragged in from elsewhere move to the top level. Dropped Finder
-    /// folders become collections; loose files go to All Tracks.
+    /// Items dragged in from elsewhere move to the top level; Finder items
+    /// become collections.
     private func importDrop(_ providers: [NSItemProvider]) async {
-        let payload = await DropPayload.load(from: providers, expandingFolders: false)
-        model.move(payload.items, toFolder: nil)
-        var loose: [URL] = []
-        for url in payload.fileURLs {
-            if (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
-                let files = DropPayload.expandFolders([url])
-                guard !files.isEmpty else { continue }
-                let collection = store.createCollection(title: url.lastPathComponent)
-                await model.importFiles(files, into: collection.id)
-            } else {
-                loose.append(url)
-            }
-        }
-        await model.importFiles(loose.filter(AudioAnalyzer.isAudioFile), into: nil)
+        await model.handleDrop(await DropPayload.load(from: providers, expandingFolders: false), intoFolder: nil)
     }
 }
 
@@ -67,7 +57,7 @@ private struct EmptyHome: View {
                 .foregroundStyle(.tertiary)
             Text("Your ideas go here")
                 .font(.system(size: 22, weight: .semibold))
-            Text("Create a collection for an album, EP or mixtape — or drop audio files and folders anywhere in this window.")
+            Text("Create a collection for an album, EP or mixtape, or drop audio files and folders anywhere in this window.")
                 .font(.system(size: 14))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -75,7 +65,7 @@ private struct EmptyHome: View {
             HStack {
                 Button("New Collection") { model.promptNewCollection() }
                     .buttonStyle(.borderedProminent)
-                Button("Add Tracks…") { model.importAudio(into: nil) }
+                Button("From Files…") { model.newCollectionFromFiles(in: .some(nil)) }
             }
             .controlSize(.large)
             .padding(.top, 6)
@@ -92,6 +82,7 @@ struct CollectionCard: View {
 
     @State private var hovering = false
     @State private var isTargeted = false
+    @Environment(\.liquidGlass) private var glass
 
     var body: some View {
         let isCurrent = player.contextCollectionID == collection.id && player.hasTrack
@@ -101,7 +92,7 @@ struct CollectionCard: View {
                 .shadow(color: .black.opacity(hovering ? 0.2 : 0.08), radius: hovering ? 16 : 8, y: hovering ? 8 : 4)
                 .dropHighlight(isTargeted, cornerRadius: size * 0.09)
                 .overlay(alignment: .bottomTrailing) {
-                    if !collection.trackIDs.isEmpty {
+                    if !store.tracks(in: collection.id).isEmpty {
                         Button {
                             isCurrent ? player.togglePlayPause() : player.play(collection: collection.id)
                         } label: {
@@ -109,8 +100,9 @@ struct CollectionCard: View {
                                 .font(.system(size: 17))
                                 .foregroundStyle(.white)
                                 .frame(width: 46, height: 46)
-                                .background(RoundedRectangle(cornerRadius: 11, style: .continuous).fill(Color(white: 0.12).opacity(0.88)))
                                 .contentShape(Rectangle())
+                                .glassOr(glass, in: RoundedRectangle(cornerRadius: 13, style: .continuous), tint: .black.opacity(0.25),
+                                         interactive: true, clear: true, classic: Color(white: 0.12).opacity(0.88))
                         }
                         .buttonStyle(.plain)
                         .offset(x: 8, y: 8)

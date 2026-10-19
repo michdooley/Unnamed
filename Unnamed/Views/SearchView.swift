@@ -24,11 +24,12 @@ struct SearchView: View {
                 description: Text("Find tracks by title, file name, notes, comments, key or BPM.")
             )
         } else {
+            // Archived things stay out of search; they're in Archived.
             let folders = store.folders.values
-                .filter { matches($0.title, query) }
+                .filter { matches($0.title, query) && !store.isArchived(folder: $0.id) }
                 .sorted { LibraryStore.titleOrder($0.title, $0.id, $1.title, $1.id) }
-            let collections = model.orderedCollections.filter { matches($0.title, query) }
-            let tracks = store.tracksNewestFirst.filter { trackMatches($0, query) }
+            let collections = model.activeCollections.filter { matches($0.title, query) }
+            let tracks = store.activeTracksNewestFirst.filter { trackMatches($0, query) }
             let comments = commentHits(query)
             if folders.isEmpty && collections.isEmpty && tracks.isEmpty && comments.isEmpty {
                 ContentUnavailableView.search(text: query)
@@ -105,7 +106,7 @@ struct SearchView: View {
     private func commentHits(_ query: String) -> [CommentHit] {
         store.comments
             .flatMap { trackID, comments in
-                comments.filter { matches($0.text, query) }.map { CommentHit(trackID: trackID, comment: $0) }
+                store.isHidden(track: trackID) ? [] : comments.filter { matches($0.text, query) }.map { CommentHit(trackID: trackID, comment: $0) }
             }
             .sorted { $0.comment.createdAt > $1.comment.createdAt }
     }

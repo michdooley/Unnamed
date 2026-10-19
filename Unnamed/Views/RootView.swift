@@ -6,66 +6,89 @@ struct RootView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
+        let launching = !model.launchScreenFinished
+        // Switching to another library later shows the same screen.
+        let switching = !launching && model.isOpening && model.store == nil
         ZStack {
-            Group {
+            // Nothing is built under the launch screen, so nothing shows
+            // through it; the app appears as it fades away.
+            if !launching {
                 if let store = model.store {
                     MainView(store: store)
                 } else if !model.isOpening {
                     OnboardingView()
                 }
             }
-            // Shown at launch, and while switching to another library.
-            if !model.launchScreenFinished || (model.isOpening && model.store == nil) {
+            if launching || switching {
                 LaunchScreen()
-                    .transition(.opacity)
+                    .transition(.asymmetric(insertion: .opacity, removal: .opacity.combined(with: .scale(scale: 1.08))))
                     .zIndex(1)
             }
         }
-        .animation(.easeOut(duration: 0.5), value: model.isOpening)
+        .animation(.easeOut(duration: 0.45), value: switching)
+        // The dark screens run edge to edge, under the title bar.
+        .toolbarBackgroundVisibility(model.store == nil || launching ? .hidden : .automatic, for: .windowToolbar)
         .task {
-            guard !model.launchScreenFinished else { return }
+            guard launching else { return }
             // Hold the launch screen briefly and until the library is open, then fade.
-            let minimum: Duration = reduceMotion ? .zero : .milliseconds(1100)
+            let minimum: Duration = reduceMotion ? .zero : .milliseconds(1200)
             async let opened: Void = model.start()
             try? await Task.sleep(for: minimum)
             await opened
-            withAnimation(.easeOut(duration: 0.6)) { model.launchScreenFinished = true }
+            withAnimation(.easeOut(duration: 0.55)) { model.launchScreenFinished = true }
         }
     }
 }
 
-/// A single spinning disc while the app starts.
-private struct LaunchScreen: View {
+/// A spinning CD and the wordmark while the app starts.
+struct LaunchScreen: View {
+    /// Shows the "Opening your library…" line straight away (for snapshots).
+    var alwaysShowsStatus = false
+    @State private var showsStatus = false
+
     var body: some View {
         ZStack {
-            SpinningDiscsView(arrangement: .single)
-            VStack {
-                Spacer()
+            Rectangle().fill(SpinningDiscsView.backdrop)
+            VStack(spacing: 14) {
+                ShaderDiscView(radius: 0.42, speed: 0.9)
+                    .frame(width: 250, height: 250)
                 Text("Unnamed")
-                    .font(.system(size: 22, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.85))
-                    .padding(.bottom, 64)
+                    .font(.system(size: 28, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.92))
+                // Only if opening takes a while (a big library, or iCloud is slow).
+                Text("Opening your library…")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.white.opacity(0.5))
+                    .opacity(showsStatus || alwaysShowsStatus ? 1 : 0)
             }
+            .padding(.bottom, 20)
         }
         .ignoresSafeArea()
+        .task {
+            try? await Task.sleep(for: .seconds(1.6))
+            withAnimation(.easeOut(duration: 0.4)) { showsStatus = true }
+        }
     }
 }
 
 /// First launch: choose where the library lives, over a field of spinning CDs.
 struct OnboardingView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.liquidGlass) private var glass
     var timeOffset: TimeInterval = 0
 
     var body: some View {
         ZStack {
-            SpinningDiscsView(arrangement: .scattered, timeOffset: timeOffset)
+            SpinningDiscsView(timeOffset: timeOffset)
                 .ignoresSafeArea()
-            // A soft dark pool behind the text keeps it readable over the discs.
-            Ellipse()
-                .fill(.black.opacity(0.5))
-                .frame(width: 760, height: 560)
-                .blur(radius: 90)
-                .allowsHitTesting(false)
+            if !glass {
+                // A soft dark pool behind the text keeps it readable over the discs.
+                Ellipse()
+                    .fill(.black.opacity(0.5))
+                    .frame(width: 760, height: 560)
+                    .blur(radius: 90)
+                    .allowsHitTesting(false)
+            }
 
             VStack(spacing: 0) {
                 Image(nsImage: NSApp.applicationIconImage)
@@ -117,7 +140,7 @@ struct OnboardingView: View {
                             .font(.system(size: 15, weight: .medium))
                             .frame(width: 290, height: 44)
                             .background(Capsule().fill(.white.opacity(0.12)))
-                            .overlay(Capsule().strokeBorder(.white.opacity(0.2)))
+                            .overlay(Capsule().strokeBorder(.white.opacity(glass ? 0.28 : 0.2)))
                             .foregroundStyle(.white)
                             .contentShape(Capsule())
                     }
@@ -127,10 +150,13 @@ struct OnboardingView: View {
 
                 Text("Not using iCloud? Choose any folder; it just won't sync.")
                     .font(.system(size: 12))
-                    .foregroundStyle(.white.opacity(0.45))
+                    .foregroundStyle(.white.opacity(glass ? 0.6 : 0.45))
                     .padding(.top, 16)
             }
             .padding(40)
+            // In Liquid Glass mode the welcome sits on a slab of glass, with
+            // the CDs bending through its edges.
+            .glassOr(glass, in: RoundedRectangle(cornerRadius: 40, style: .continuous), tint: .black.opacity(0.25), classic: Color.clear)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .environment(\.colorScheme, .dark)

@@ -9,8 +9,17 @@ struct AppCommands: Commands {
             Button("New Collection") { model.promptNewCollection() }
                 .keyboardShortcut("n")
                 .disabled(model.store == nil)
-            Button("Add Tracks…") { model.importAudio(into: model.selectedCollectionID) }
-                .keyboardShortcut("o")
+            Button(model.selectedCollectionID == nil ? "New Collection from Files…" : "Add Tracks…") {
+                if let collectionID = model.selectedCollectionID {
+                    model.importAudio(into: collectionID)
+                } else {
+                    model.newCollectionFromFiles()
+                }
+            }
+            .keyboardShortcut("o")
+            .disabled(model.store == nil)
+            Button("New Folder") { model.promptNewFolder() }
+                .keyboardShortcut("n", modifiers: [.command, .shift])
                 .disabled(model.store == nil)
             Divider()
             Button("Open Library…") { model.chooseExistingLibrary() }

@@ -6,10 +6,9 @@ struct AllTracksView: View {
     @Environment(AppModel.self) private var model
     @Environment(PlayerController.self) private var player
     let store: LibraryStore
-    @State private var isTargeted = false
 
     var body: some View {
-        let tracks = store.tracksNewestFirst
+        let tracks = store.activeTracksNewestFirst
         let ids = tracks.map(\.id)
         let isCurrent = player.hasTrack && player.contextCollectionID == nil && ids.contains(player.currentTrackID ?? UUID())
         ScrollView {
@@ -29,21 +28,16 @@ struct AllTracksView: View {
                     .disabled(tracks.isEmpty)
                 }
 
-                AddTracksButton(collectionID: nil)
-                    .padding(.top, 28)
-
                 LazyVStack(spacing: 2) {
-                    ForEach(store.pendingImports.filter { $0.collectionID == nil }) { item in
-                        PendingImportRow(title: item.title)
-                    }
-                    ForEach(tracks) { track in
+                    ForEach(Array(tracks.enumerated()), id: \.element.id) { index, track in
                         TrackRow(store: store, track: track, queue: ids, showsCollections: true)
+                            .cascadeIn(index)
                     }
                 }
                 .padding(.top, 18)
 
                 if tracks.isEmpty {
-                    Text("Drop audio files here to add them to your library.")
+                    Text("Tracks live in collections. Create one from Home to add your first ideas.")
                         .font(.system(size: 13))
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity)
@@ -56,13 +50,6 @@ struct AllTracksView: View {
             .padding(.bottom, 40)
             .frame(maxWidth: .infinity)
         }
-        .dropHighlight(isTargeted, cornerRadius: 0)
-        .onDrop(of: DropPayload.acceptedTypes, isTargeted: $isTargeted) { providers in
-            Task {
-                let payload = await DropPayload.load(from: providers)
-                await model.importFiles(payload.fileURLs, into: nil)
-            }
-            return true
-        }
+        .pageEntrance()
     }
 }

@@ -94,8 +94,9 @@ struct LibraryStoreTests {
         await store.flush()
         #expect(!FileManager.default.fileExists(atPath: store.layout.trackDir(ids[0]).path))
 
-        // Deleting a collection with its tracks keeps tracks used elsewhere.
-        store.deleteCollection(mixtape.id, deleteTracks: true)
+        // Deleting a collection deletes its tracks, except ones used elsewhere.
+        #expect(store.tracksOnlyIn(mixtape.id) == [ids[2]])
+        await store.deleteCollection(mixtape.id)
         #expect(store.tracks[ids[1]] != nil)
         #expect(store.tracks[ids[2]] == nil)
         await store.flush()

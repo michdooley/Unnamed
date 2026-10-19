@@ -1,7 +1,7 @@
 import SwiftUI
 import UnnamedKit
 
-/// A folder's page: its subfolders, collections and loose tracks.
+/// A folder's page: its subfolders and collections.
 struct FolderView: View {
     @Environment(AppModel.self) private var model
     @Environment(PlayerController.self) private var player
@@ -12,14 +12,19 @@ struct FolderView: View {
 
     var body: some View {
         if let folder = store.folders[folderID] {
-            let subfolders = store.subfolders(of: folderID)
-            let collections = model.orderedCollections(in: folderID)
-            let tracks = store.looseTracks(inFolder: folderID)
-            let pending = store.pendingImports.filter { $0.folderID == folderID && $0.collectionID == nil }
-            let queue = playQueue(collections: collections, tracks: tracks)
+            // Inside an archived folder everything is shown, including things
+            // archived on their own, so they can still be reached and restored.
+            let inArchive = model.archivedRoot(of: .folder(folderID)) != nil
+            let subfolders = store.subfolders(of: folderID, includingArchived: inArchive)
+            let collections = model.orderedCollections(in: folderID, includingArchived: inArchive)
+            let queue = store.trackIDs(inFolder: folderID)
             let isCurrent = player.hasTrack && player.contextCollectionID == nil && queue.contains(player.currentTrackID ?? UUID())
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
+                    if let root = model.archivedRoot(of: .folder(folderID)) {
+                        ArchivedBanner(root: root, isSelf: root == .folder(folderID))
+                            .padding(.bottom, 20)
+                    }
                     HStack(alignment: .top, spacing: 16) {
                         Image(systemName: "folder.fill")
                             .font(.system(size: 30))
@@ -31,7 +36,7 @@ struct FolderView: View {
                                 .lineLimit(2)
                                 .onTapGesture(count: 2) { model.promptRename(folderID: folderID) }
                                 .help("Double-click to rename")
-                            Text(summary(subfolders.count, collections.count, tracks.count))
+                            Text(summary(subfolders.count, collections.count, queue.count))
                                 .font(.system(size: 14))
                                 .foregroundStyle(.secondary)
                         }
@@ -50,42 +55,37 @@ struct FolderView: View {
                         PillButton(title: "New Folder", systemImage: "folder.badge.plus") {
                             model.promptNewFolder(in: .some(folderID))
                         }
-                        PillButton(title: "Add Tracks", systemImage: "plus") {
-                            model.importAudio(into: nil, folder: folderID)
+                        PillButton(title: "From Files…", systemImage: "waveform.badge.plus") {
+                            model.newCollectionFromFiles(in: .some(folderID))
                         }
                     }
                     .padding(.top, 24)
 
                     if !subfolders.isEmpty || !collections.isEmpty {
                         CenteredFlowLayout(spacing: 32, rowSpacing: 32, centered: false) {
-                            ForEach(subfolders) { subfolder in
+                            ForEach(Array(subfolders.enumerated()), id: \.element.id) { index, subfolder in
                                 FolderCard(store: store, folder: subfolder, size: 170)
+                                    .overlay(alignment: .topLeading) {
+                                        if subfolder.archivedAt != nil { RestoreBadge(item: .folder(subfolder.id)) }
+                                    }
+                                    .cascadeIn(index)
                             }
-                            ForEach(collections) { collection in
+                            ForEach(Array(collections.enumerated()), id: \.element.id) { index, collection in
                                 CollectionCard(store: store, collection: collection, size: 170)
+                                    .overlay(alignment: .topLeading) {
+                                        if collection.archivedAt != nil { RestoreBadge(item: .collection(collection.id)) }
+                                    }
+                                    .cascadeIn(subfolders.count + index)
                             }
                         }
                         .padding(.top, 32)
                     }
 
-                    if !tracks.isEmpty || !pending.isEmpty {
-                        Text("Tracks")
-                            .font(.system(size: 20, weight: .semibold))
-                            .padding(.top, 36)
-                        LazyVStack(spacing: 2) {
-                            ForEach(pending) { PendingImportRow(title: $0.title) }
-                            ForEach(tracks) { track in
-                                TrackRow(store: store, track: track, queue: tracks.map(\.id), showsCollections: true)
-                            }
-                        }
-                        .padding(.top, 10)
-                    }
-
-                    if subfolders.isEmpty && collections.isEmpty && tracks.isEmpty && pending.isEmpty {
+                    if subfolders.isEmpty && collections.isEmpty {
                         VStack(spacing: 6) {
                             Text("This folder is empty")
                                 .font(.system(size: 15, weight: .medium))
-                            Text("Drag collections, tracks or other folders here, or drop audio files from Finder.")
+                            Text("Drag collections or other folders here, or drop audio files from Finder to start a new collection.")
                                 .font(.system(size: 13))
                                 .foregroundStyle(.secondary)
                         }
@@ -99,20 +99,16 @@ struct FolderView: View {
                 .padding(.bottom, 40)
                 .frame(maxWidth: .infinity)
             }
+            .pageEntrance()
             .dropHighlight(isTargeted, cornerRadius: 0)
             .onDrop(of: DropPayload.acceptedTypes, isTargeted: $isTargeted) { providers in
-                Task { await model.handleDrop(await DropPayload.load(from: providers), intoFolder: folderID) }
+                Task { await model.handleDrop(await DropPayload.load(from: providers, expandingFolders: false), intoFolder: folderID) }
                 return true
             }
         }
     }
 
-    /// Everything in the folder in reading order: each collection's tracks, then loose tracks.
-    private func playQueue(collections: [TrackCollection], tracks: [Track]) -> [UUID] {
-        var seen = Set<UUID>()
-        return (collections.flatMap(\.trackIDs) + tracks.map(\.id)).filter { seen.insert($0).inserted }
-    }
-
+    /// "1 folder · 2 collections · 9 tracks" (tracks counted across subfolders too).
     private func summary(_ folders: Int, _ collections: Int, _ tracks: Int) -> String {
         var parts: [String] = []
         if folders > 0 { parts.append(folders == 1 ? "1 folder" : "\(folders) folders") }
@@ -136,7 +132,7 @@ struct FolderCard: View {
         let collections = model.orderedCollections(in: folder.id)
         let count = store.contentCount(ofFolder: folder.id)
         VStack(alignment: .leading, spacing: 0) {
-            mosaic(collections: Array(collections.prefix(4)), tracks: Array(store.looseTracks(inFolder: folder.id).prefix(4)), subfolders: count.folders)
+            mosaic(collections: Array(collections.prefix(4)), subfolders: count.folders)
                 .frame(width: size, height: size)
                 .background(RoundedRectangle(cornerRadius: size * 0.09, style: .continuous).fill(Color.primary.opacity(0.06)))
                 .overlay(
@@ -168,16 +164,15 @@ struct FolderCard: View {
         .animation(.easeOut(duration: 0.18), value: hovering)
         .onDrag { NSItemProvider.forItem(.folder(folder.id), title: folder.title) }
         .onDrop(of: DropPayload.acceptedTypes, isTargeted: $isTargeted) { providers in
-            Task { await model.handleDrop(await DropPayload.load(from: providers), intoFolder: folder.id) }
+            Task { await model.handleDrop(await DropPayload.load(from: providers, expandingFolders: false), intoFolder: folder.id) }
             return true
         }
         .contextMenu { FolderMenuItems(folderID: folder.id) }
     }
 
     @ViewBuilder
-    private func mosaic(collections: [TrackCollection], tracks: [Track], subfolders: Int) -> some View {
+    private func mosaic(collections: [TrackCollection], subfolders: Int) -> some View {
         let tiles: [(url: URL?, seed: UUID)] = collections.map { (store.artworkURL(forCollection: $0.id), $0.id) }
-            + tracks.map { model.artwork(forTrack: $0.id, in: nil) }
         let inset = size * 0.08
         let gap = size * 0.045
         let tile = (size - inset * 2 - gap) / 2
@@ -206,9 +201,11 @@ struct FolderCard: View {
         }
     }
 
-    private func subtitle(_ count: (folders: Int, collections: Int, tracks: Int)) -> String {
-        let total = count.folders + count.collections + count.tracks
-        return total == 0 ? "Empty" : (total == 1 ? "1 item" : "\(total) items")
+    private func subtitle(_ count: (folders: Int, collections: Int)) -> String {
+        var parts: [String] = []
+        if count.folders > 0 { parts.append(count.folders == 1 ? "1 folder" : "\(count.folders) folders") }
+        if count.collections > 0 { parts.append(count.collections == 1 ? "1 collection" : "\(count.collections) collections") }
+        return parts.isEmpty ? "Empty" : parts.joined(separator: " · ")
     }
 }
 
@@ -218,6 +215,7 @@ struct PillButton: View {
     let systemImage: String
     let action: () -> Void
     @State private var hovering = false
+    @Environment(\.liquidGlass) private var glass
 
     var body: some View {
         Button(action: action) {
@@ -225,8 +223,8 @@ struct PillButton: View {
                 .font(.system(size: 14, weight: .medium))
                 .padding(.horizontal, 14)
                 .frame(height: 36)
-                .background(Capsule().fill(Color.primary.opacity(hovering ? 0.09 : 0.05)))
                 .contentShape(Capsule())
+                .glassOr(glass, in: Capsule(), interactive: true, classic: Color.primary.opacity(hovering ? 0.09 : 0.05))
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }

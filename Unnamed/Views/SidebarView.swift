@@ -39,7 +39,7 @@ struct SidebarView: View {
                     .contentShape(Rectangle())
                     .dropHighlight(libraryHeaderTargeted, cornerRadius: 4)
                     .onDrop(of: DropPayload.acceptedTypes, isTargeted: $libraryHeaderTargeted) { providers in
-                        Task { await model.handleDrop(await DropPayload.load(from: providers), intoFolder: nil) }
+                        Task { await model.handleDrop(await DropPayload.load(from: providers, expandingFolders: false), intoFolder: nil) }
                         return true
                     }
                     .contextMenu {
@@ -47,6 +47,9 @@ struct SidebarView: View {
                         Button("New Collection…") { model.promptNewCollection(in: .some(nil)) }
                     }
             }
+
+            ArchiveRow(count: store.archivedCount)
+                .tag(SidebarItem.archive)
         }
         .listStyle(.sidebar)
         .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -117,7 +120,7 @@ private struct SidebarFolderRow: View {
         .contentShape(Rectangle())
         .dropHighlight(isTargeted, cornerRadius: 6)
         .onDrop(of: DropPayload.acceptedTypes, isTargeted: $isTargeted) { providers in
-            Task { await model.handleDrop(await DropPayload.load(from: providers), intoFolder: folder.id) }
+            Task { await model.handleDrop(await DropPayload.load(from: providers, expandingFolders: false), intoFolder: folder.id) }
             return true
         }
         .onDrag { NSItemProvider.forItem(.folder(folder.id), title: folder.title) }
@@ -159,6 +162,33 @@ private struct SidebarCollectionRow: View {
         }
         .contextMenu {
             CollectionMenuItems(collectionID: collection.id)
+        }
+    }
+}
+
+/// "Archived" in the sidebar; drop things on it to archive them.
+private struct ArchiveRow: View {
+    @Environment(AppModel.self) private var model
+    let count: Int
+    @State private var isTargeted = false
+
+    var body: some View {
+        HStack {
+            Label("Archived", systemImage: "archivebox")
+            Spacer()
+            if count > 0 {
+                Text("\(count)")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .contentShape(Rectangle())
+        .dropHighlight(isTargeted, cornerRadius: 6)
+        .onDrop(of: [.unnamedItem], isTargeted: $isTargeted) { providers in
+            Task {
+                for item in await DropPayload.load(from: providers).items { model.archive(item) }
+            }
+            return true
         }
     }
 }
@@ -209,14 +239,23 @@ struct CollectionMenuItems: View {
             // Created where the collection is now, then the collection moves in.
             model.promptNewFolder(in: .some(model.store?.folder(ofCollection: collectionID)), moving: [.collection(collectionID)])
         }
-        Button("Change Cover Art…") { model.chooseArtwork(forCollection: collectionID) }
-        if collection?.artworkFileName != nil {
-            Button("Remove Cover Art") { model.store?.removeArtwork(forCollection: collectionID) }
+        Menu("Cover Art") {
+            Button("Upload Image…") { model.chooseArtwork(forCollection: collectionID) }
+            Button("Browse Unsplash…") { model.unsplashTarget = .collection(collectionID) }
+            if collection?.artworkFileName != nil {
+                Divider()
+                Button("Remove Cover Art") { model.store?.removeArtwork(forCollection: collectionID) }
+            }
         }
         Divider()
         Button("Export Audio…") { model.exportCollection(collectionID) }
             .disabled(collection?.trackIDs.isEmpty ?? true)
         Divider()
+        if model.isArchived(.collection(collectionID)) {
+            Button("Restore") { model.restore(.collection(collectionID)) }
+        } else {
+            Button("Archive") { model.archive(.collection(collectionID)) }
+        }
         Button("Delete Collection…", role: .destructive) { model.pendingDeletion = .collection(collectionID) }
     }
 }
@@ -232,7 +271,7 @@ struct FolderMenuItems: View {
         Divider()
         Button("New Collection in Folder…") { model.promptNewCollection(in: .some(folderID)) }
         Button("New Folder Inside…") { model.promptNewFolder(in: .some(folderID)) }
-        Button("Add Tracks…") { model.importAudio(into: nil, folder: folderID) }
+        Button("New Collection from Files…") { model.newCollectionFromFiles(in: .some(folderID)) }
         Divider()
         Button("Rename…") { model.promptRename(folderID: folderID) }
         FolderPickerMenu(
@@ -241,6 +280,11 @@ struct FolderMenuItems: View {
             excluding: folderID
         ) { model.move([.folder(folderID)], toFolder: $0) }
         Divider()
+        if model.isArchived(.folder(folderID)) {
+            Button("Restore") { model.restore(.folder(folderID)) }
+        } else {
+            Button("Archive") { model.archive(.folder(folderID)) }
+        }
         Button("Delete Folder…", role: .destructive) { model.pendingDeletion = .folder(folderID) }
     }
 }

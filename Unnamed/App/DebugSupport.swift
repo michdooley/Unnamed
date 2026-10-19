@@ -12,6 +12,9 @@ import UnnamedKit
 /// - `-snapshot` (with `-demoLibrary`) walks through the main screens, saves a
 ///   PNG of each to the container's tmp/snapshots folder, then quits.
 enum DebugSupport {
+    /// Where the record behind the collection cover is, in window coordinates (top-left origin).
+    static var bigDiscFrame: CGRect?
+    static var miniDiscFrame: CGRect?
     static var arguments: [String] { ProcessInfo.processInfo.arguments }
 
     static func demoLibraryURL() -> URL? {
@@ -85,7 +88,8 @@ enum DebugSupport {
                 }
             }
         }
-        // Folders: two collections and a loose idea filed under "2026 Releases".
+        // Folders: two collections filed under "2026 Releases", and a
+        // subfolder holding a collection of voice memos.
         let releases = store.createFolder(title: "2026 Releases")
         let demos = store.createFolder(title: "Demos for Sam", in: releases.id)
         for title in ["Pop/RnB", "Mainstream EDM"] {
@@ -97,7 +101,8 @@ enum DebugSupport {
         let memo = scratch.appending(path: "phone voice memo.wav")
         let memoSeed = seed
         if (try? await Task.detached { try synthesize(seconds: 22, bpm: 70, seed: memoSeed, to: memo) }.value) != nil {
-            await store.importAudio(from: [memo], folder: demos.id)
+            let memos = store.createCollection(title: "Voice Memos", in: demos.id)
+            await store.importAudio(from: [memo], into: memos.id)
         }
 
         // Versions: "late night chords" gets two newer takes, with comments on each.
@@ -227,6 +232,15 @@ enum DebugSupport {
         }
 
         let snippets = store.collections.values.first { $0.title == "Snippets" }
+        if arguments.contains("-scratchProbe"), let snippets {
+            await probeScratching(store: store, collectionID: snippets.id)
+            NSApp.terminate(nil)
+            return
+        }
+        if arguments.contains("-glassLab"), let snippets {
+            await shootGlassLab(store: store, collectionID: snippets.id, folder: folder)
+            return
+        }
         model.selection = .home
         await shoot("1-home-empty-player")
 
@@ -235,6 +249,9 @@ enum DebugSupport {
             model.player.seek(to: 14)
             model.selection = .home
             await shoot("2-home")
+            withAnimation { model.addMenuOpen = true }
+            await shoot("2b-home-add-menu")
+            model.addMenuOpen = false
 
             model.selection = .collection(snippets.id)
             await shoot("3-collection-playing")
@@ -304,6 +321,7 @@ enum DebugSupport {
         let host = NSHostingView(rootView: view
             .environment(model)
             .environment(model.player)
+            .environment(\.liquidGlass, model.liquidGlass && LiquidGlassSupport.isAvailable)
             .frame(width: size.width, height: size.height)
             .background(Color(nsColor: .textBackgroundColor)))
         let window = NSWindow(contentRect: CGRect(origin: .zero, size: size), styleMask: [.borderless], backing: .buffered, defer: false)
@@ -314,6 +332,235 @@ enum DebugSupport {
         log("rendering \(name)")
         capture(window, to: folder.appending(path: "\(name).png"))
         window.orderOut(nil)
+    }
+
+    /// Liquid Glass pieces in an off-screen window, each captured by the
+    /// handshake driver (glass only renders in a real window).
+    @MainActor
+    private static func shootGlassLab(store: LibraryStore, collectionID: UUID, folder: URL) async {
+        let model = AppModel.shared
+        model.selection = .home
+        model.player.play(collection: collectionID)
+        model.player.seek(to: 20)
+        model.player.pause()
+        func open(_ view: some View, size: CGSize) -> NSWindow {
+            let host = NSHostingView(rootView: view
+                .environment(model)
+                .environment(model.player)
+                .environment(\.liquidGlass, true)
+                .frame(width: size.width, height: size.height))
+            let window = NSWindow(contentRect: CGRect(origin: .zero, size: size), styleMask: [.borderless], backing: .buffered, defer: false)
+            window.contentView = host
+            // On screen but behind everything (off-screen windows can't be captured).
+            window.setFrameOrigin(NSScreen.main?.visibleFrame.origin ?? .zero)
+            window.orderBack(nil)
+            return window
+        }
+        func waitForCapture(_ name: String) async {
+            let done = folder.appending(path: "\(name).done")
+            for _ in 0..<120 where !FileManager.default.fileExists(atPath: done.path) {
+                try? await Task.sleep(for: .milliseconds(250))
+            }
+        }
+        func show(_ view: some View, size: CGSize, name: String) async {
+            let window = open(view, size: size)
+            try? await Task.sleep(for: .milliseconds(1500))
+            log("READY \(name)")
+            await waitForCapture(name)
+            window.orderOut(nil)
+        }
+        let art = store.artworkURL(forCollection: collectionID)
+        let label = Label("Add Cover Art", systemImage: "photo")
+            .font(.system(size: 14, weight: .medium))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 16)
+            .frame(height: 38)
+            .glassOr(true, in: Capsule(), tint: .black.opacity(0.2), clear: true, classic: Color.clear)
+        let tint = await ArtworkTint.make(url: art, seed: collectionID)
+        let backdrop = ZStack {
+            Color(nsColor: .textBackgroundColor)
+            AmbientArtwork(url: art, seed: collectionID)
+        }
+        model.addMenuOpen = true
+        await show(
+            ZStack {
+                backdrop
+                VStack(spacing: 30) {
+                    HStack(spacing: 30) {
+                        ArtworkView(url: art, seed: collectionID, cornerRadius: 22, pixelSize: 400)
+                            .frame(width: 220, height: 220)
+                            .overlay(alignment: .bottom) { label.padding(.bottom, 20) }
+                            .shadow(color: .black.opacity(0.14), radius: 18, y: 8)
+                        BigPlayButton(isPlaying: false, tint: tint) {}
+                        BigPlayButton(isPlaying: false) {}
+                        PillButton(title: "New Collection", systemImage: "square.stack") {}
+                    }
+                    ToastView(toast: Toast(message: "Archived “Snippets”", systemImage: "archivebox", actionTitle: "Undo", action: {})) {}
+                    Spacer()
+                    PlayerDock(store: store)
+                }
+                .padding(.vertical, 24)
+            },
+            size: CGSize(width: 1100, height: 640),
+            name: "glass-lab"
+        )
+        model.addMenuOpen = false
+
+        // The "+" melting out of the player, in slow motion, a frame at a time.
+        model.selection = .collection(collectionID)
+        PlayerDock.animationSpeed = 0.1
+        let melt = open(ZStack { backdrop; VStack { Spacer(); PlayerDock(store: store) }.padding(.bottom, 24) }, size: CGSize(width: 1000, height: 200))
+        try? await Task.sleep(for: .milliseconds(1500))
+        model.selection = .home
+        for frame in 1...7 {
+            try? await Task.sleep(for: .milliseconds(650))
+            log("READY glass-melt-\(frame)")
+        }
+        await waitForCapture("glass-melt-7")
+        // And back in.
+        model.selection = .collection(collectionID)
+        for frame in 1...5 {
+            try? await Task.sleep(for: .milliseconds(450))
+            log("READY glass-unmelt-\(frame)")
+        }
+        await waitForCapture("glass-unmelt-5")
+        melt.orderOut(nil)
+        PlayerDock.animationSpeed = 1
+        await show(OnboardingView(), size: CGSize(width: 1100, height: 760), name: "glass-onboarding")
+        model.player.stop()
+        log("SNAPSHOTS: \(folder.path)")
+        if arguments.contains("-quitAfterSnapshot") { NSApp.terminate(nil) }
+    }
+
+    /// Drags the discs with synthetic mouse events (sent straight to a hidden
+    /// panel, so the real pointer doesn't move) and checks each one scratches.
+    @MainActor
+    private static func probeScratching(store: LibraryStore, collectionID: UUID) async {
+        let model = AppModel.shared
+        let player = model.player
+        player.setVolume(0)
+        player.play(collection: collectionID)
+        try? await Task.sleep(for: .seconds(1))
+        let size = CGSize(width: 1300, height: 900)
+        let panel = NSPanel(contentRect: CGRect(origin: .zero, size: size), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        panel.contentView = NSHostingView(rootView: VStack(spacing: 0) {
+            CollectionView(store: store, collectionID: collectionID)
+            HStack { PlayerBar(store: store).fixedSize(); Spacer() }
+        }
+        .environment(model)
+        .environment(player)
+        .environment(\.liquidGlass, model.liquidGlass && LiquidGlassSupport.isAvailable)
+        .frame(width: size.width, height: size.height))
+        panel.setFrameOrigin(NSScreen.main?.visibleFrame.origin ?? .zero)
+        panel.orderBack(nil)
+        try? await Task.sleep(for: .seconds(2))
+
+        func drag(_ name: String, _ points: [CGPoint]) async {
+            func send(_ type: NSEvent.EventType, _ point: CGPoint) {
+                let location = CGPoint(x: point.x, y: size.height - point.y)
+                if let event = NSEvent.mouseEvent(with: type, location: location, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                                  windowNumber: panel.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) {
+                    panel.sendEvent(event)
+                }
+            }
+            let before = player.currentTime
+            var scratched = false
+            send(.leftMouseDown, points[0])
+            for point in points.dropFirst() {
+                try? await Task.sleep(for: .milliseconds(16))
+                send(.leftMouseDragged, point)
+                scratched = scratched || player.isScratching
+            }
+            send(.leftMouseUp, points[points.count - 1])
+            try? await Task.sleep(for: .seconds(1.2))
+            log("\(scratched ? "PASS" : "FAIL") scratch \(name) (moved \(String(format: "%.2f", player.currentTime - before)) s)")
+        }
+        // The big record, where it sticks out to the right of the cover
+        // (440 pt cover at x 68...508, record centre 74 pt right of the cover's).
+        for x in [520.0, 545] {
+            await drag("big disc x\(Int(x)) down", (0...20).map { CGPoint(x: x, y: 230 + Double($0) * 4) })
+            await drag("big disc x\(Int(x)) across", (0...20).map { CGPoint(x: x - 20 + Double($0) * 2, y: 256) })
+        }
+        // The small disc in the player (centre 29, 871): a quarter turn.
+        await drag("mini disc", (0...20).map { step in
+            let angle = Double(step) / 20 * .pi / 2
+            return CGPoint(x: 29 + 15 * cos(angle), y: 871 + 15 * sin(angle))
+        })
+        panel.orderOut(nil)
+
+        // The same, in the real window.
+        guard let window = NSApp.windows.first(where: { KeyboardShortcuts.isMainWindow($0) })
+                ?? NSApp.windows.first(where: { $0.isVisible && $0.styleMask.contains(.titled) }),
+              let content = window.contentView else {
+            log("FAIL no main window: " + NSApp.windows.map { "\(type(of: $0)) \($0.identifier?.rawValue ?? "-") visible=\($0.isVisible)" }.joined(separator: ", "))
+            return
+        }
+        model.selection = .collection(collectionID)
+        try? await Task.sleep(for: .seconds(2.5))
+        guard let disc = bigDiscFrame else {
+            log("FAIL big disc never laid out")
+            return
+        }
+        log("big disc frame \(disc), window content \(content.frame.size)")
+        func dragInWindow(_ name: String, _ points: [CGPoint]) async {
+            func send(_ type: NSEvent.EventType, _ point: CGPoint) {
+                let location = CGPoint(x: point.x, y: content.frame.height - point.y)
+                if let event = NSEvent.mouseEvent(with: type, location: location, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                                  windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) {
+                    window.sendEvent(event)
+                }
+            }
+            if let hit = content.hitTest(CGPoint(x: points[0].x, y: content.frame.height - points[0].y)) {
+                log("hit view at \(points[0]): \(type(of: hit))")
+            }
+            var scratched = false
+            send(.leftMouseDown, points[0])
+            for point in points.dropFirst() {
+                try? await Task.sleep(for: .milliseconds(16))
+                send(.leftMouseDragged, point)
+                scratched = scratched || player.isScratching
+            }
+            send(.leftMouseUp, points[points.count - 1])
+            try? await Task.sleep(for: .seconds(1.5))
+            log("\(scratched ? "PASS" : "FAIL") scratch \(name) in the window")
+        }
+        func describe(_ point: CGPoint) {
+            guard var view = content.hitTest(CGPoint(x: point.x, y: content.frame.height - point.y)) else { return }
+            var chain: [String] = []
+            for _ in 0..<8 {
+                let frame = view.convert(view.bounds, to: nil)
+                chain.append("\(type(of: view)) x\(Int(frame.minX))...\(Int(frame.maxX)) y\(Int(content.frame.height - frame.maxY))...\(Int(content.frame.height - frame.minY))")
+                guard let parent = view.superview else { break }
+                view = parent
+            }
+            log("at \(Int(point.x)),\(Int(point.y)): " + chain.joined(separator: " < "))
+        }
+        describe(CGPoint(x: disc.midX - disc.width * 0.2, y: disc.midY))
+        describe(CGPoint(x: disc.midX + disc.width / 2 * 0.85, y: disc.midY))
+        if let mini = miniDiscFrame {
+            await dragInWindow("mini disc", (0...20).map { step in
+                let angle = Double(step) / 20 * .pi / 2
+                return CGPoint(x: mini.midX + 15 * cos(angle), y: mini.midY + 15 * sin(angle))
+            })
+        }
+        let x = disc.midX + disc.width / 2 * 0.85
+        await dragInWindow("big disc down", (0...20).map { CGPoint(x: x, y: disc.midY - 30 + Double($0) * 4) })
+        await dragInWindow("big disc across", (0...20).map { CGPoint(x: x - 20 + Double($0) * 2, y: disc.midY) })
+
+        // And with cover art.
+        let png = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 64, pixelsHigh: 64, bitsPerSample: 8, samplesPerPixel: 4,
+                                   hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+        for i in 0..<64 { for j in 0..<64 { png.setColor(NSColor(red: Double(i) / 64, green: 0.3, blue: Double(j) / 64, alpha: 1), atX: i, y: j) } }
+        await store.setArtwork(forCollection: collectionID, from: .data(png.representation(using: .png, properties: [:])!))
+        player.play(collection: collectionID)
+        try? await Task.sleep(for: .seconds(2.5))
+        if let disc = bigDiscFrame {
+            describe(CGPoint(x: disc.midX + disc.width / 2 * 0.85, y: disc.midY))
+            let x = disc.midX + disc.width / 2 * 0.85
+            await dragInWindow("big disc down, with art", (0...20).map { CGPoint(x: x, y: disc.midY - 30 + Double($0) * 4) })
+        }
+        store.removeArtwork(forCollection: collectionID)
+        player.stop()
     }
 
     /// Exercises code paths whose callbacks arrive on background threads.
@@ -356,6 +603,40 @@ enum DebugSupport {
             check(store.parentFolder(of: child.id) == parent.id && store.parentFolder(of: parent.id) != child.id, "folder can't move into its own subfolder")
         }
 
+        // Navigation direction follows depth: into folders and collections is
+        // forward, back out is back, between top-level pages is lateral.
+        if let releases = store.folders.values.first(where: { $0.title == "2026 Releases" }),
+           let inside = store.collections(inFolder: releases.id).first {
+            model.selection = .home
+            model.selection = .folder(releases.id)
+            let intoFolder = model.navigationDirection
+            model.selection = .collection(inside.id)
+            let intoCollection = model.navigationDirection
+            model.selection = .folder(releases.id)
+            let backOut = model.navigationDirection
+            model.selection = .allTracks
+            model.selection = .search
+            let lateral = model.navigationDirection
+            check(intoFolder == .forward && intoCollection == .forward && backOut == .back && lateral == .lateral, "page transitions follow depth")
+            model.selection = .home
+        }
+
+        // Tracks dragged onto a folder stay where they are (folders hold collections).
+        if let track = store.tracks.values.first, let folder = store.folders.values.first {
+            let before = store.collections(containing: track.id).map(\.id)
+            model.move([.track(track.id)], toFolder: folder.id)
+            check(store.collections(containing: track.id).map(\.id) == before, "tracks aren't moved into folders")
+        }
+
+        // Collections made from loose files are named after their folder,
+        // unless it's a system or temporary one.
+        let home = LibraryLocation.realHomeDirectory
+        check(AppModel.collectionName(forFiles: [home.appending(path: "Music/Ideas/a.wav"), home.appending(path: "Music/Ideas/b.wav")]) == "Ideas"
+              && AppModel.collectionName(forFiles: [LibraryLocation.iCloudDriveDirectory.appending(path: "a.wav")]) == "New Collection"
+              && AppModel.collectionName(forFiles: [home.appending(path: "A/a.wav"), home.appending(path: "B/b.wav")]) == "New Collection"
+              && AppModel.collectionName(forFiles: [FileManager.default.temporaryDirectory.appending(path: "x/a.wav")]) == "New Collection",
+              "collections from files get sensible names")
+
         // Drop a file from "Finder".
         if let audio = store.audioURL(for: track.id), let fileDrag = NSItemProvider(contentsOf: audio) {
             let fromFile = await DropPayload.load(from: [fileDrag])
@@ -381,6 +662,8 @@ enum DebugSupport {
             model.player.stop()
             store.removeArtwork(forCollection: collection.id)
         }
+
+        check(NSApp.windows.contains { KeyboardShortcuts.isMainWindow($0) }, "the library window can be told apart (Escape closes the glass + menu)")
 
         log("SELFTEST \(failures == 0 ? "OK" : "FAILED (\(failures))")")
         NSApp.terminate(nil)
@@ -425,8 +708,19 @@ enum DebugSupport {
         }
         render(OnboardingView().frame(width: 1320, height: 860), "shader-onboarding-a")
         render(OnboardingView(timeOffset: 6).frame(width: 1320, height: 860), "shader-onboarding-b")
-        render(SpinningDiscsView(arrangement: .single).frame(width: 900, height: 600), "shader-launch")
-        render(SpinningDiscsView(arrangement: .single).frame(width: 520, height: 520).scaleEffect(1), "shader-disc-closeup")
+        render(LaunchScreen(alwaysShowsStatus: true).frame(width: 1320, height: 860), "shader-launch")
+        render(
+            HStack(spacing: 40) {
+                AddButton(isOpen: .constant(false))
+                AddButton(isOpen: .constant(true))
+            }
+            .padding(40)
+            .background(Color(nsColor: .textBackgroundColor)),
+            "add-button"
+        )
+        render(ArtworkChoices(target: .collection(UUID()), hasArtwork: true).background(Color(nsColor: .windowBackgroundColor)), "artwork-choices")
+        render(AddMenu().background(Color(nsColor: .windowBackgroundColor)), "add-menu")
+        render(UnsplashPicker(target: .collection(UUID())).background(Color(nsColor: .windowBackgroundColor)), "unsplash-connect")
         log("SNAPSHOTS: \(folder.path)")
         NSApp.terminate(nil)
     }

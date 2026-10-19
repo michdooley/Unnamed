@@ -96,6 +96,11 @@ struct GradientArtwork: View {
     }
 
     static func palette(for seed: UUID) -> (Color, Color) {
+        let (start, end) = paletteHex(for: seed)
+        return (Color(hex: start), Color(hex: end))
+    }
+
+    static func paletteHex(for seed: UUID) -> (UInt32, UInt32) {
         // FNV-1a over all 16 bytes.
         var hash: UInt64 = 0xCBF2_9CE4_8422_2325
         withUnsafeBytes(of: seed.uuid) { bytes in
@@ -104,19 +109,19 @@ struct GradientArtwork: View {
         return palettes[Int(hash % UInt64(palettes.count))]
     }
 
-    static let palettes: [(Color, Color)] = [
-        (Color(hex: 0x6F7FD6), Color(hex: 0x7EC3E6)),
-        (Color(hex: 0xF8B4D9), Color(hex: 0xE46FE0)),
-        (Color(hex: 0xFF2FC8), Color(hex: 0x6A2BE6)),
-        (Color(hex: 0xFFB199), Color(hex: 0xFF4E6A)),
-        (Color(hex: 0x5EE7B0), Color(hex: 0x2BB5D8)),
-        (Color(hex: 0xFAD961), Color(hex: 0xF7731C)),
-        (Color(hex: 0xA18CD1), Color(hex: 0xFBC2EB)),
-        (Color(hex: 0x30CFD0), Color(hex: 0x3A2A8C)),
-        (Color(hex: 0xF093FB), Color(hex: 0xF5576C)),
-        (Color(hex: 0x4FACFE), Color(hex: 0x6D5CF6)),
-        (Color(hex: 0xC471F5), Color(hex: 0xFA71CD)),
-        (Color(hex: 0xFDCB82), Color(hex: 0xF37676)),
+    static let palettes: [(UInt32, UInt32)] = [
+        (0x6F7FD6, 0x7EC3E6),
+        (0xF8B4D9, 0xE46FE0),
+        (0xFF2FC8, 0x6A2BE6),
+        (0xFFB199, 0xFF4E6A),
+        (0x5EE7B0, 0x2BB5D8),
+        (0xFAD961, 0xF7731C),
+        (0xA18CD1, 0xFBC2EB),
+        (0x30CFD0, 0x3A2A8C),
+        (0xF093FB, 0xF5576C),
+        (0x4FACFE, 0x6D5CF6),
+        (0xC471F5, 0xFA71CD),
+        (0xFDCB82, 0xF37676),
     ]
 }
 

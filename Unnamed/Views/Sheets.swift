@@ -47,7 +47,7 @@ struct TrackPickerSheet: View {
 
     var body: some View {
         let existing = Set(store.collections[collectionID]?.trackIDs ?? [])
-        let tracks = store.tracksNewestFirst.filter {
+        let tracks = store.activeTracksNewestFirst.filter {
             query.isEmpty || $0.title.localizedStandardContains(query)
         }
         VStack(spacing: 0) {
@@ -91,7 +91,7 @@ struct TrackPickerSheet: View {
                 Button("Cancel", role: .cancel) { dismiss() }
                     .keyboardShortcut(.cancelAction)
                 Button(selected.count > 1 ? "Add \(selected.count) Tracks" : "Add Track") {
-                    let ordered = store.tracksNewestFirst.map(\.id).filter(selected.contains)
+                    let ordered = store.activeTracksNewestFirst.map(\.id).filter(selected.contains)
                     store.addTracks(ordered, to: collectionID)
                     dismiss()
                 }
@@ -141,12 +141,31 @@ struct SettingsView: View {
                     Button("Create Library…") { model.createLibraryInICloud() }
                 }
             }
+            if LiquidGlassSupport.isAvailable {
+                Section {
+                    Toggle("Liquid Glass", isOn: $model.liquidGlass)
+                } header: {
+                    Text("Appearance")
+                } footer: {
+                    Text("Draws the player, buttons and menus with Liquid Glass. Turn it off for the classic look.")
+                        .foregroundStyle(.secondary)
+                }
+            }
             Section {
                 TextField("Your name", text: $model.authorName)
             } header: {
                 Text("Comments")
             } footer: {
                 Text("Shown next to comments you write, so collaborators sharing the folder know who said what.")
+                    .foregroundStyle(.secondary)
+            }
+            Section {
+                TextField("Access Key", text: $model.unsplashAccessKey, prompt: Text(model.unsplashKey.isEmpty ? "Paste your Access Key" : "Using the key built into this app"))
+                    .font(.system(.body, design: .monospaced))
+            } header: {
+                Text("Unsplash")
+            } footer: {
+                Text("Lets you pick cover art from Unsplash. Create a free app at [unsplash.com/developers](https://unsplash.com/developers) and paste its Access Key here. Photographers are credited next to the art.")
                     .foregroundStyle(.secondary)
             }
             Section("About") {

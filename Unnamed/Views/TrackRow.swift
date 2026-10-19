@@ -18,6 +18,7 @@ struct TrackRow: View {
 
     @State private var hovering = false
     @State private var dropTargeted = false
+    @Environment(\.liquidGlass) private var glass
 
     var body: some View {
         let isCurrent = player.currentTrackID == track.id
@@ -55,10 +56,13 @@ struct TrackRow: View {
         .padding(.leading, 12)
         .padding(.trailing, 4)
         .frame(height: 60)
+        .opacity(track.archivedAt != nil ? 0.6 : 1)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Color.primary.opacity(isCurrent ? 0.07 : hovering ? 0.04 : 0))
+                .fill(Color.primary.opacity(isCurrent ? (glass ? 0 : 0.07) : hovering ? 0.04 : 0))
         )
+        // The playing row floats up as a glass pill in Liquid Glass mode.
+        .glassWhen(isCurrent, enabled: glass, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(alignment: .top) {
             if dropTargeted {
                 Capsule().fill(Color.accentColor).frame(height: 3).offset(y: -2)
@@ -209,7 +213,7 @@ struct TrackMenuItems: View {
         Button("Version History…") { model.showDetails(for: trackID, in: collectionID, pane: .versions) }
         Divider()
         Menu("Add to Collection") {
-            ForEach(model.orderedCollections) { collection in
+            ForEach(model.activeCollections) { collection in
                 Button(collection.title) { store?.addTracks([trackID], to: collection.id) }
                     .disabled(collection.trackIDs.contains(trackID))
             }
@@ -218,13 +222,10 @@ struct TrackMenuItems: View {
         }
         if let collectionID {
             Menu("Move to") {
-                ForEach(model.orderedCollections.filter { $0.id != collectionID }) { collection in
+                ForEach(model.activeCollections.filter { $0.id != collectionID }) { collection in
                     Button(collection.title) { store?.moveTracks([trackID], from: collectionID, to: collection.id) }
                 }
             }
-        }
-        FolderPickerMenu(title: "Move to Folder", current: store?.folder(ofTrack: trackID)) {
-            model.move([.track(trackID)], toFolder: $0)
         }
         Button("Duplicate") { model.duplicate(trackID: trackID, in: collectionID) }
         Divider()
@@ -238,8 +239,15 @@ struct TrackMenuItems: View {
             }
         }
         Divider()
-        if let collectionID {
+        // Removing is only offered when the track is in another collection too;
+        // otherwise it would be left without one (use Delete instead).
+        if let collectionID, store?.canRemove(track: trackID, from: collectionID) == true {
             Button("Remove from Collection") { store?.removeTracks([trackID], from: collectionID) }
+        }
+        if model.isArchived(.track(trackID)) {
+            Button("Restore") { model.restore(.track(trackID)) }
+        } else {
+            Button("Archive") { model.archive(.track(trackID)) }
         }
         Button("Delete Track…", role: .destructive) { model.pendingDeletion = .track(trackID) }
     }

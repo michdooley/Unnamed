@@ -7,8 +7,22 @@ enum SidebarItem: Hashable {
     case home
     case allTracks
     case search
+    case archive
     case collection(UUID)
     case folder(UUID)
+}
+
+/// A short message at the bottom of the window, optionally with an action ("Undo").
+struct Toast: Identifiable {
+    let id = UUID()
+    var message: String
+    var systemImage: String
+    var actionTitle: String?
+    var action: (() -> Void)?
+}
+
+enum NavigationDirection {
+    case forward, back, lateral
 }
 
 enum TrackDetailPane: Hashable {
@@ -19,7 +33,6 @@ enum TrackDetailPane: Hashable {
     case versions
     case addToCollection
     case moveToCollection
-    case folder
 }
 
 struct TrackDetailRoute: Identifiable, Hashable {
@@ -70,12 +83,21 @@ final class AppModel {
     /// Set when the remembered library couldn't be reopened.
     private(set) var reconnectPath: String?
 
-    var selection: SidebarItem? = .home
+    var selection: SidebarItem? = .home {
+        didSet {
+            guard oldValue != selection else { return }
+            let from = depth(of: oldValue), to = depth(of: selection)
+            navigationDirection = to > from ? .forward : to < from ? .back : .lateral
+        }
+    }
+    /// Which way the last navigation went, for the page transition.
+    private(set) var navigationDirection: NavigationDirection = .lateral
     var searchText = ""
     var searchFocused = false
     var detail: TrackDetailRoute?
     var namePrompt: NamePrompt?
     var pendingDeletion: PendingDeletion?
+    var toast: Toast?
     /// Collection whose "Add from Library" picker is open.
     var pickerCollectionID: UUID?
     var alert: LibraryIssue?
@@ -86,6 +108,27 @@ final class AppModel {
     private(set) var expandedFolders: Set<UUID>
     var authorName: String {
         didSet { UserDefaults.standard.set(authorName, forKey: "comments.author") }
+    }
+    /// Draw the interface with Liquid Glass (macOS 26+).
+    var liquidGlass: Bool {
+        didSet { UserDefaults.standard.set(liquidGlass, forKey: "appearance.liquidGlass") }
+    }
+    /// Whether the "+" menu is open (it spans the dock and the page behind it).
+    var addMenuOpen = false
+    /// The Unsplash picker's target, while it's open.
+    var unsplashTarget: ArtworkTarget?
+    /// An Unsplash Access Key pasted in by the user (stored on this Mac only).
+    var unsplashAccessKey: String {
+        didSet { UserDefaults.standard.set(unsplashAccessKey, forKey: "unsplash.accessKey") }
+    }
+
+    /// The user's key, else one built into the app (UNSPLASH_ACCESS_KEY).
+    var unsplashKey: String {
+        let own = unsplashAccessKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !own.isEmpty { return own }
+        let builtIn = (Bundle.main.object(forInfoDictionaryKey: "UnsplashAccessKey") as? String ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return builtIn.hasPrefix("$(") ? "" : builtIn
     }
 
     /// The launch screen shows once per launch, not every time the window reopens.
@@ -101,6 +144,8 @@ final class AppModel {
         recentCollectionIDs = (defaults.stringArray(forKey: "collections.recent") ?? []).compactMap(UUID.init(uuidString:))
         expandedFolders = Set((defaults.stringArray(forKey: "folders.expanded") ?? []).compactMap(UUID.init(uuidString:)))
         authorName = defaults.string(forKey: "comments.author") ?? NSFullUserName()
+        unsplashAccessKey = defaults.string(forKey: "unsplash.accessKey") ?? ""
+        liquidGlass = defaults.object(forKey: "appearance.liquidGlass") as? Bool ?? true
     }
 
     // MARK: - Library lifecycle
@@ -218,6 +263,19 @@ final class AppModel {
         return nil
     }
 
+    /// How deep a page is: Home 0, a top-level folder 1, a collection in it 2…
+    func depth(of item: SidebarItem?) -> Int {
+        guard let store else { return 0 }
+        switch item ?? .home {
+        case .home, .allTracks, .search, .archive:
+            return 0
+        case .folder(let id):
+            return store.folderPath(to: id).count
+        case .collection(let id):
+            return (store.folder(ofCollection: id).map { store.folderPath(to: $0).count } ?? 0) + 1
+        }
+    }
+
     var selectedFolderID: UUID? {
         if case .folder(let id) = selection { return id }
         return nil
@@ -236,8 +294,8 @@ final class AppModel {
     }
 
     /// The collections directly in a folder (top level when nil), recently played first.
-    func orderedCollections(in folderID: UUID?) -> [TrackCollection] {
-        sortedByRecency(store?.collections(inFolder: folderID) ?? [])
+    func orderedCollections(in folderID: UUID?, includingArchived: Bool = false) -> [TrackCollection] {
+        sortedByRecency(store?.collections(inFolder: folderID, includingArchived: includingArchived) ?? [])
     }
 
     private func sortedByRecency(_ collections: [TrackCollection]) -> [TrackCollection] {
@@ -343,7 +401,7 @@ final class AppModel {
         }
     }
 
-    func confirmDeletion(_ deletion: PendingDeletion, deleteTracks: Bool = false) {
+    func confirmDeletion(_ deletion: PendingDeletion) {
         guard let store else { return }
         switch deletion {
         case .track(let id):
@@ -354,13 +412,109 @@ final class AppModel {
             if selectedCollectionID == id {
                 selection = store.folder(ofCollection: id).map(SidebarItem.folder) ?? .home
             }
-            store.deleteCollection(id, deleteTracks: deleteTracks)
-            player.libraryDidChange()
+            Task {
+                await store.deleteCollection(id)
+                player.libraryDidChange()
+            }
         case .folder(let id):
             if selectedFolderID == id {
                 selection = store.parentFolder(of: id).map(SidebarItem.folder) ?? .home
             }
             store.deleteFolder(id)
+        }
+    }
+
+    // MARK: - Archive
+
+    /// Hides something from the library without deleting it. If it's the page
+    /// being viewed, goes up a level. Offers Undo.
+    func archive(_ item: LibraryItemRef) {
+        // Already archived (e.g. dragged around the Archive page): nothing to undo.
+        guard let store, !isArchived(item) else { return }
+        let name = title(of: item)
+        switch item {
+        case .track(let id):
+            store.setArchived(true, track: id)
+        case .collection(let id):
+            if selectedCollectionID == id {
+                selection = store.folder(ofCollection: id).map(SidebarItem.folder) ?? .home
+            }
+            store.setArchived(true, collection: id)
+        case .folder(let id):
+            if let current = selectedFolderID ?? selectedCollectionID.flatMap({ store.folder(ofCollection: $0) }),
+               store.isFolder(current, within: id) {
+                selection = store.parentFolder(of: id).map(SidebarItem.folder) ?? .home
+            }
+            store.setArchived(true, folder: id)
+        }
+        showToast(Toast(message: "Archived “\(name)”", systemImage: "archivebox", actionTitle: "Undo") { [weak self] in
+            self?.restore(item, announce: false)
+        })
+    }
+
+    /// Puts an archived item back exactly where it was.
+    func restore(_ item: LibraryItemRef, announce: Bool = true) {
+        guard let store else { return }
+        switch item {
+        case .track(let id): store.setArchived(false, track: id)
+        case .collection(let id): store.setArchived(false, collection: id)
+        case .folder(let id): store.setArchived(false, folder: id)
+        }
+        if announce {
+            showToast(Toast(message: "Restored “\(title(of: item))”", systemImage: "arrow.uturn.backward"))
+        }
+    }
+
+    /// Whether the item itself (not just something it's in) is archived.
+    func isArchived(_ item: LibraryItemRef) -> Bool {
+        guard let store else { return false }
+        switch item {
+        case .track(let id): return store.tracks[id]?.archivedAt != nil
+        case .collection(let id): return store.collections[id]?.archivedAt != nil
+        case .folder(let id): return store.folders[id]?.archivedAt != nil
+        }
+    }
+
+    /// The archived thing that hides a page: the collection or folder itself,
+    /// or the archived folder it's inside.
+    func archivedRoot(of item: SidebarItem?) -> LibraryItemRef? {
+        guard let store else { return nil }
+        let folderChain: (UUID?) -> LibraryItemRef? = { folder in
+            guard let folder else { return nil }
+            return store.folderPath(to: folder).first { $0.archivedAt != nil }.map { .folder($0.id) }
+        }
+        switch item {
+        case .collection(let id):
+            if store.collections[id]?.archivedAt != nil { return .collection(id) }
+            return folderChain(store.folder(ofCollection: id))
+        case .folder(let id):
+            return folderChain(id)
+        default:
+            return nil
+        }
+    }
+
+    func title(of item: LibraryItemRef) -> String {
+        switch item {
+        case .track(let id): store?.tracks[id]?.title ?? "track"
+        case .collection(let id): store?.collections[id]?.title ?? "collection"
+        case .folder(let id): store?.folders[id]?.title ?? "folder"
+        }
+    }
+
+    /// Collections you can add tracks to: everything not archived.
+    var activeCollections: [TrackCollection] {
+        orderedCollections.filter { !(store?.isArchived(collection: $0.id) ?? false) }
+    }
+
+    func showToast(_ toast: Toast) {
+        withAnimation(.spring(duration: 0.35)) { self.toast = toast }
+        let id = toast.id
+        Task {
+            try? await Task.sleep(for: .seconds(5))
+            if self.toast?.id == id {
+                withAnimation(.easeOut(duration: 0.3)) { self.toast = nil }
+            }
         }
     }
 
@@ -390,13 +544,13 @@ final class AppModel {
         UserDefaults.standard.set(expandedFolders.map(\.uuidString), forKey: "folders.expanded")
     }
 
-    /// Moves tracks, collections and folders into a folder (top level when nil).
-    /// A track moved into a folder keeps its collections.
+    /// Moves collections and folders into a folder (top level when nil).
+    /// Tracks live in collections, so dragged tracks are ignored here.
     func move(_ items: [LibraryItemRef], toFolder folderID: UUID?) {
         guard let store else { return }
         for item in items {
             switch item {
-            case .track(let id): store.moveTrack(id, toFolder: folderID)
+            case .track: continue
             case .collection(let id): store.moveCollection(id, toFolder: folderID)
             case .folder(let id):
                 if id != folderID { store.moveFolder(id, into: folderID) }
@@ -405,37 +559,95 @@ final class AppModel {
     }
 
     /// Handles a drop onto a folder (or the top level when nil): moves
-    /// dragged items in and imports dropped files into it.
+    /// dragged collections and folders in; dropped Finder items become
+    /// collections there. Load the payload without expanding folders.
     func handleDrop(_ payload: DropPayload, intoFolder folderID: UUID?) async {
         move(payload.items, toFolder: folderID)
         if !payload.fileURLs.isEmpty {
-            await importFiles(payload.fileURLs, into: nil, folder: folderID)
+            await createCollections(from: payload.fileURLs, in: folderID)
         }
     }
 
     // MARK: - Importing
 
-    /// Asks for audio files (or folders of them) and imports them into a
-    /// collection and/or folder.
-    func importAudio(into collectionID: UUID?, folder: UUID? = nil) {
+    /// Asks for audio files (or folders of them) and adds them to a collection.
+    func importAudio(into collectionID: UUID) {
+        guard let urls = pickAudioFiles(title: "Add Tracks") else { return }
+        Task { await importFiles(urls, into: collectionID) }
+    }
+
+    /// Asks for audio files or folders and makes collections of them in
+    /// `folder` (the current folder by default). Tracks always live in a collection.
+    func newCollectionFromFiles(in folder: UUID?? = .none) {
+        let panel = audioPanel(title: "New Collection from Files")
+        guard panel.runModal() == .OK, !panel.urls.isEmpty else { return }
+        let folder = folder ?? currentFolderID
+        let urls = panel.urls
+        Task { await createCollections(from: urls, in: folder) }
+    }
+
+    /// Turns Finder items into collections: each folder becomes a collection
+    /// named after it, and loose audio files become one more. Opens the
+    /// collection when there's just one.
+    func createCollections(from urls: [URL], in folder: UUID?) async {
+        guard let store else { return }
+        var batches: [(title: String, files: [URL])] = []
+        var loose: [URL] = []
+        for url in urls {
+            if (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
+                let files = DropPayload.expandFolders([url])
+                if !files.isEmpty { batches.append((url.lastPathComponent, files)) }
+            } else if AudioAnalyzer.isAudioFile(url) {
+                loose.append(url)
+            }
+        }
+        if !loose.isEmpty {
+            batches.append((Self.collectionName(forFiles: loose), loose))
+        }
+        let created = batches.map { (store.createCollection(title: $0.title, in: folder).id, $0.files) }
+        if created.count == 1 {
+            selection = .collection(created[0].0)
+        }
+        for (collectionID, files) in created {
+            await importFiles(files, into: collectionID)
+        }
+    }
+
+    /// The files' folder name, unless it's a system or temporary folder
+    /// (iCloud Drive's root, a Mail or browser drag) that would make a poor title.
+    static func collectionName(forFiles urls: [URL]) -> String {
+        let parents = Set(urls.map { $0.deletingLastPathComponent().standardizedFileURL })
+        guard parents.count == 1, let parent = parents.first else { return "New Collection" }
+        let name = parent.lastPathComponent
+        let generic: Set<String> = ["Desktop", "Downloads", "Documents", "tmp", "T", "TemporaryItems", "Caches", "/"]
+        let isTemporary = parent.path.hasPrefix(FileManager.default.temporaryDirectory.standardizedFileURL.path)
+            || parent.path.contains("/private/var/folders/")
+        if name.isEmpty || name.contains("~") || name.hasPrefix(".") || generic.contains(name) || isTemporary {
+            return "New Collection"
+        }
+        return name
+    }
+
+    func importFiles(_ urls: [URL], into collectionID: UUID, at index: Int? = nil) async {
+        guard let store, !urls.isEmpty else { return }
+        await store.importAudio(from: urls, into: collectionID, at: index)
+    }
+
+    private func pickAudioFiles(title: String) -> [URL]? {
+        let panel = audioPanel(title: title)
+        guard panel.runModal() == .OK else { return nil }
+        let urls = DropPayload.expandFolders(panel.urls)
+        return urls.isEmpty ? nil : urls
+    }
+
+    private func audioPanel(title: String) -> NSOpenPanel {
         let panel = NSOpenPanel()
-        panel.title = "Add Tracks"
+        panel.title = title
         panel.prompt = "Add"
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = true
         panel.allowedContentTypes = [.audio, .folder]
-        guard panel.runModal() == .OK else { return }
-        let urls = DropPayload.expandFolders(panel.urls)
-        Task { await importFiles(urls, into: collectionID, folder: folder) }
-    }
-
-    func importFiles(_ urls: [URL], into collectionID: UUID?, at index: Int? = nil, folder: UUID? = nil) async {
-        guard let store, !urls.isEmpty else { return }
-        let imported = await store.importAudio(from: urls, into: collectionID, at: index, folder: folder)
-        // Show where loose imports went, unless they're visible already.
-        if collectionID == nil, folder == nil, !imported.isEmpty, selectedCollectionID == nil, selectedFolderID == nil, selection != .allTracks {
-            selection = .allTracks
-        }
+        return panel
     }
 
     /// Files opened from Finder ("Open With", dropped on the Dock icon).
@@ -444,14 +656,19 @@ final class AppModel {
             pendingOpenURLs.append(contentsOf: urls)
             return
         }
-        let audio = DropPayload.expandFolders(urls).filter(AudioAnalyzer.isAudioFile)
-        Task { await importFiles(audio, into: selectedCollectionID, folder: selectedFolderID) }
+        Task {
+            if let collectionID = selectedCollectionID {
+                await importFiles(DropPayload.expandFolders(urls).filter(AudioAnalyzer.isAudioFile), into: collectionID)
+            } else {
+                await createCollections(from: urls, in: currentFolderID)
+            }
+        }
     }
 
-    /// Handles a drop of files or tracks onto a collection (or the library when nil).
-    func handleDrop(_ payload: DropPayload, into collectionID: UUID?, before targetTrackID: UUID? = nil) async {
+    /// Handles a drop of files or tracks onto a collection.
+    func handleDrop(_ payload: DropPayload, into collectionID: UUID, before targetTrackID: UUID? = nil) async {
         guard let store else { return }
-        if let collectionID, !payload.trackIDs.isEmpty {
+        if !payload.trackIDs.isEmpty {
             let existing = store.collections[collectionID]?.trackIDs ?? []
             let reordering = payload.trackIDs.filter(existing.contains)
             let adding = payload.trackIDs.filter { !existing.contains($0) }
@@ -466,7 +683,7 @@ final class AppModel {
             }
         }
         if !payload.fileURLs.isEmpty {
-            let index = collectionID.flatMap { id in targetTrackID.flatMap { store.collections[id]?.trackIDs.firstIndex(of: $0) } }
+            let index = targetTrackID.flatMap { store.collections[collectionID]?.trackIDs.firstIndex(of: $0) }
             await importFiles(payload.fileURLs, into: collectionID, at: index)
         }
     }
@@ -481,6 +698,20 @@ final class AppModel {
     func chooseArtwork(forTrack trackID: UUID) {
         guard let url = pickImage() else { return }
         Task { await store?.setArtwork(forTrack: trackID, from: .file(url)) }
+    }
+
+    func uploadArtwork(for target: ArtworkTarget) {
+        switch target {
+        case .collection(let id): chooseArtwork(forCollection: id)
+        case .track(let id): chooseArtwork(forTrack: id)
+        }
+    }
+
+    func removeArtwork(for target: ArtworkTarget) {
+        switch target {
+        case .collection(let id): store?.removeArtwork(forCollection: id)
+        case .track(let id): store?.removeArtwork(forTrack: id)
+        }
     }
 
     private func pickImage() -> URL? {

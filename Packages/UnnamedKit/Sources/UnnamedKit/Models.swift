@@ -68,7 +68,8 @@ extension TrackVersion {
     }
 }
 
-/// A single music idea: its audio versions plus metadata.
+/// A single music idea: its audio versions plus metadata. Every track lives
+/// in at least one collection; folders organise collections, not tracks.
 ///
 /// Stored on disk as `Tracks/<id>/track.json`. Notes, comments and waveforms
 /// live in sibling files so that edits on two devices rarely touch the same file.
@@ -83,10 +84,12 @@ public struct Track: Identifiable, Hashable, Sendable {
     public var currentVersionID: UUID?
     /// File name of the artwork inside the track's folder, if any.
     public var artworkFileName: String?
+    /// Who to credit for the artwork, when it came from Unsplash.
+    public var artworkCredit: ArtworkCredit?
     public var bpm: Double?
     public var musicalKey: String?
-    /// The folder this track sits in directly (independent of its collections).
-    public var folderID: UUID?
+    /// When the track was archived (hidden but kept), if it is.
+    public var archivedAt: Date?
 
     /// Creates a track with a single version whose ID matches the track's.
     public init(
@@ -99,8 +102,7 @@ public struct Track: Identifiable, Hashable, Sendable {
         duration: TimeInterval = 0,
         artworkFileName: String? = nil,
         bpm: Double? = nil,
-        musicalKey: String? = nil,
-        folderID: UUID? = nil
+        musicalKey: String? = nil
     ) {
         self.id = id
         self.title = title
@@ -116,7 +118,6 @@ public struct Track: Identifiable, Hashable, Sendable {
         self.artworkFileName = artworkFileName
         self.bpm = bpm
         self.musicalKey = musicalKey
-        self.folderID = folderID
     }
 
     /// The version that plays by default (the newest if the ID is unknown).
@@ -150,7 +151,7 @@ public struct Track: Identifiable, Hashable, Sendable {
 extension Track: Codable {
     enum CodingKeys: String, CodingKey {
         case id, title, createdAt, updatedAt, audioFile, originalFileName, duration, artworkFile, bpm, key
-        case versions, currentVersion, folder
+        case versions, currentVersion, artworkCredit, archivedAt
     }
 
     // Lenient decoding: every field is optional on disk so files written by
@@ -162,9 +163,10 @@ extension Track: Codable {
         createdAt = try c.decodeIfPresent(Date.self, forKey: .createdAt) ?? .distantPast
         updatedAt = try c.decodeIfPresent(Date.self, forKey: .updatedAt) ?? createdAt
         artworkFileName = try c.decodeIfPresent(String.self, forKey: .artworkFile)
+        artworkCredit = try? c.decodeIfPresent(ArtworkCredit.self, forKey: .artworkCredit)
+        archivedAt = try c.decodeIfPresent(Date.self, forKey: .archivedAt)
         bpm = try c.decodeIfPresent(Double.self, forKey: .bpm)
         musicalKey = try c.decodeIfPresent(String.self, forKey: .key)
-        folderID = try c.decodeIfPresent(UUID.self, forKey: .folder)
 
         // Versions normally come from their own files (the scanner fills them
         // in). A track without any is format 1: its single audio file becomes
@@ -200,9 +202,10 @@ extension Track: Codable {
         try c.encodeIfPresent(originalFileName, forKey: .originalFileName)
         try c.encode(duration, forKey: .duration)
         try c.encodeIfPresent(artworkFileName, forKey: .artworkFile)
+        try c.encodeIfPresent(artworkCredit, forKey: .artworkCredit)
+        try c.encodeIfPresent(archivedAt, forKey: .archivedAt)
         try c.encodeIfPresent(bpm, forKey: .bpm)
         try c.encodeIfPresent(musicalKey, forKey: .key)
-        try c.encodeIfPresent(folderID, forKey: .folder)
     }
 }
 
@@ -217,7 +220,7 @@ public struct VersionKey: Hashable, Sendable {
     }
 }
 
-/// A folder for organising: it can hold other folders, collections and tracks.
+/// A folder for organising collections: it holds other folders and collections.
 ///
 /// Folders form a tree. Each item records its own parent (`folder` in its
 /// JSON), so moving things around only rewrites the item that moved. Stored
@@ -228,6 +231,8 @@ public struct LibraryFolder: Identifiable, Hashable, Sendable {
     public var createdAt: Date
     public var updatedAt: Date
     public var parentID: UUID?
+    /// When the folder was archived (hidden with everything in it), if it is.
+    public var archivedAt: Date?
 
     public init(id: UUID = UUID(), title: String, createdAt: Date = .libraryNow, updatedAt: Date = .libraryNow, parentID: UUID? = nil) {
         self.id = id
@@ -240,7 +245,7 @@ public struct LibraryFolder: Identifiable, Hashable, Sendable {
 
 extension LibraryFolder: Codable {
     enum CodingKeys: String, CodingKey {
-        case id, title, createdAt, updatedAt, parent
+        case id, title, createdAt, updatedAt, parent, archivedAt
     }
 
     public init(from decoder: any Decoder) throws {
@@ -250,6 +255,7 @@ extension LibraryFolder: Codable {
         createdAt = try c.decodeIfPresent(Date.self, forKey: .createdAt) ?? .distantPast
         updatedAt = try c.decodeIfPresent(Date.self, forKey: .updatedAt) ?? createdAt
         parentID = try c.decodeIfPresent(UUID.self, forKey: .parent)
+        archivedAt = try c.decodeIfPresent(Date.self, forKey: .archivedAt)
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -259,6 +265,7 @@ extension LibraryFolder: Codable {
         try c.encode(createdAt, forKey: .createdAt)
         try c.encode(updatedAt, forKey: .updatedAt)
         try c.encodeIfPresent(parentID, forKey: .parent)
+        try c.encodeIfPresent(archivedAt, forKey: .archivedAt)
     }
 }
 
@@ -273,7 +280,11 @@ public struct TrackCollection: Identifiable, Hashable, Sendable {
     public var updatedAt: Date
     public var trackIDs: [UUID]
     public var artworkFileName: String?
+    /// Who to credit for the cover, when it came from Unsplash.
+    public var artworkCredit: ArtworkCredit?
     public var folderID: UUID?
+    /// When the collection was archived (hidden but kept), if it is.
+    public var archivedAt: Date?
 
     public init(
         id: UUID = UUID(),
@@ -296,7 +307,7 @@ public struct TrackCollection: Identifiable, Hashable, Sendable {
 
 extension TrackCollection: Codable {
     enum CodingKeys: String, CodingKey {
-        case id, title, createdAt, updatedAt, tracks, artworkFile, folder
+        case id, title, createdAt, updatedAt, tracks, artworkFile, artworkCredit, folder, archivedAt
     }
 
     public init(from decoder: any Decoder) throws {
@@ -307,7 +318,9 @@ extension TrackCollection: Codable {
         updatedAt = try c.decodeIfPresent(Date.self, forKey: .updatedAt) ?? createdAt
         trackIDs = try c.decodeIfPresent([UUID].self, forKey: .tracks) ?? []
         artworkFileName = try c.decodeIfPresent(String.self, forKey: .artworkFile)
+        artworkCredit = try? c.decodeIfPresent(ArtworkCredit.self, forKey: .artworkCredit)
         folderID = try c.decodeIfPresent(UUID.self, forKey: .folder)
+        archivedAt = try c.decodeIfPresent(Date.self, forKey: .archivedAt)
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -318,7 +331,9 @@ extension TrackCollection: Codable {
         try c.encode(updatedAt, forKey: .updatedAt)
         try c.encode(trackIDs, forKey: .tracks)
         try c.encodeIfPresent(artworkFileName, forKey: .artworkFile)
+        try c.encodeIfPresent(artworkCredit, forKey: .artworkCredit)
         try c.encodeIfPresent(folderID, forKey: .folder)
+        try c.encodeIfPresent(archivedAt, forKey: .archivedAt)
     }
 }
 

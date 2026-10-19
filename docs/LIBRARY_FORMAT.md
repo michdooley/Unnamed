@@ -55,9 +55,12 @@ Informational only. Libraries created by format 1 keep `"version": 1` and are re
 | `currentVersion` | UUID string | the version that plays by default; if missing or unknown, the newest |
 | `audioFile`, `originalFileName`, `duration` | | copies of the current version's values, so format-1 readers still play it |
 | `artworkFile` | string | file name inside the track folder |
+| `artworkCredit` | credit | optional: who to credit for the artwork (below) |
 | `bpm` | number | optional |
 | `key` | string | optional, e.g. `"F♯ minor"` |
-| `folder` | UUID string | optional: the folder the track sits in directly (independent of its collections) |
+| `archivedAt` | date | optional: when the track was archived (see below) |
+
+Every track belongs to at least one collection. A track that isn't listed in any `collection.json` (for example, while files are still syncing) is still shown in All Tracks.
 
 ## `Versions/<version-uuid>.json`
 
@@ -83,9 +86,17 @@ Versions are ordered by `createdAt` (ties by `id`), and a new version is always 
 | `createdAt`, `updatedAt` | date | |
 | `tracks` | [UUID string] | ordered; a track may appear in many collections |
 | `artworkFile` | string | file name inside the collection folder |
+| `artworkCredit` | credit | optional: who to credit for the cover (below) |
 | `folder` | UUID string | optional: the folder the collection is in |
+| `archivedAt` | date | optional: when the collection was archived |
 
-Track IDs that don't exist (for example, still syncing) are kept but not shown.
+Track IDs that don't exist (for example, still syncing) are kept but not shown. Deleting a collection also deletes the tracks that aren't in any other collection.
+
+An **artwork credit** is written when the art came from a photo service, so it can be shown next to the image:
+
+```json
+{ "source": "Unsplash", "author": "Jane Doe", "authorURL": "https://unsplash.com/@jane?…", "sourceURL": "https://unsplash.com/photos/…?…" }
+```
 
 ## `folder.json`
 
@@ -95,8 +106,11 @@ Track IDs that don't exist (for example, still syncing) are kept but not shown.
 | `title` | string | |
 | `createdAt`, `updatedAt` | date | |
 | `parent` | UUID string | optional: the folder this one is inside |
+| `archivedAt` | date | optional: when the folder was archived |
 
-Folders form a tree. Each item records its own parent, so a move only rewrites the item that moved. Readers must be defensive: a `parent` or `folder` that doesn't exist means "top level". So does a `parent` that would form a loop, which can happen if two offline devices move folders into each other. Deleting a folder moves its contents up to its parent; nothing inside is deleted.
+Folders organize collections (tracks always live in collections). Folders form a tree. Each item records its own parent, so a move only rewrites the item that moved. Readers must be defensive: a `parent` or `folder` that doesn't exist means "top level". So does a `parent` that would form a loop, which can happen if two offline devices move folders into each other. Deleting a folder moves its contents up to its parent; nothing inside is deleted.
+
+**Archiving** hides something without deleting it: an item with `archivedAt` set is left out of Home, All Tracks, search and playback, and listed under Archived instead. A track whose collections are all archived is hidden too. Archiving a folder hides everything inside it, without writing to the items inside, so restoring it (removing `archivedAt`) brings back exactly what was there. Items keep their place (`folder`, `parent`, collection membership) while archived.
 
 ## `Comments/<uuid>.json`
 
