@@ -86,6 +86,7 @@ final class AppModel {
     var selection: SidebarItem? = .home {
         didSet {
             guard oldValue != selection else { return }
+            moodboardOpen = false
             let from = depth(of: oldValue), to = depth(of: selection)
             navigationDirection = to > from ? .forward : to < from ? .back : .lateral
         }
@@ -115,6 +116,15 @@ final class AppModel {
     }
     /// Whether the "+" menu is open (it spans the dock and the page behind it).
     var addMenuOpen = false
+    /// The selected collection is showing its moodboard instead of its track list.
+    var moodboardOpen = false
+
+    /// Switches the selected collection between its tracks and its moodboard,
+    /// zooming out to the board (or back in to the list).
+    func setMoodboardOpen(_ open: Bool) {
+        guard selectedCollectionID != nil, open != moodboardOpen else { return }
+        withAnimation(.spring(duration: 0.6, bounce: 0.12)) { moodboardOpen = open }
+    }
     /// The Unsplash picker's target, while it's open.
     var unsplashTarget: ArtworkTarget?
     /// An Unsplash Access Key pasted in by the user (stored on this Mac only).

@@ -30,11 +30,12 @@ public struct PlaybackQueue: Sendable, Equatable {
     public init() {}
 
     /// Replaces the queue, starting at `start` (or the first track; a random
-    /// one when shuffling).
-    public mutating func load(_ trackIDs: [UUID], startAt start: UUID? = nil) {
+    /// one when shuffling). `inOrder` plays it as given even with shuffle on
+    /// (a moodboard's journey has its own order).
+    public mutating func load(_ trackIDs: [UUID], startAt start: UUID? = nil, inOrder: Bool = false) {
         baseOrder = trackIDs
         upNext = []
-        if shuffle {
+        if shuffle, !inOrder {
             var rest = trackIDs.shuffled()
             if let start, let i = rest.firstIndex(of: start) {
                 rest.remove(at: i)

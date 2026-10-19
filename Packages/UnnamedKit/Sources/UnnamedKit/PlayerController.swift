@@ -99,7 +99,7 @@ public final class PlayerController {
         play(trackIDs: library.tracks(in: collectionID).map(\.id), startingAt: trackID, context: collectionID)
     }
 
-    public func play(trackIDs: [UUID], startingAt trackID: UUID? = nil, context: UUID? = nil) {
+    public func play(trackIDs: [UUID], startingAt trackID: UUID? = nil, context: UUID? = nil, inOrder: Bool = false) {
         var playable = trackIDs.filter { library?.tracks[$0] != nil }
         var context = context
         if let trackID, !playable.contains(trackID) {
@@ -108,7 +108,7 @@ public final class PlayerController {
             context = nil
         }
         guard !playable.isEmpty else { return }
-        queue.load(playable, startAt: trackID)
+        queue.load(playable, startAt: trackID, inOrder: inOrder)
         contextCollectionID = context
         startCurrent(at: 0, autoplay: true)
     }
@@ -123,13 +123,13 @@ public final class PlayerController {
     }
 
     /// Plays a track starting at a specific time (e.g. clicking a comment).
-    public func play(trackID: UUID, at time: TimeInterval, in trackIDs: [UUID], context: UUID?) {
+    public func play(trackID: UUID, at time: TimeInterval, in trackIDs: [UUID], context: UUID?, inOrder: Bool = false) {
         if currentTrackID == trackID {
             seek(to: time)
             resume()
         } else {
             let ids = trackIDs.contains(trackID) ? trackIDs : [trackID]
-            queue.load(ids.filter { library?.tracks[$0] != nil }, startAt: trackID)
+            queue.load(ids.filter { library?.tracks[$0] != nil }, startAt: trackID, inOrder: inOrder)
             contextCollectionID = context
             startCurrent(at: time, autoplay: true)
         }

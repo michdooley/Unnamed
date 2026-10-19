@@ -51,6 +51,15 @@ struct MainView: View {
             }
             if let collectionID = model.selectedCollectionID, store.collections[collectionID] != nil {
                 ToolbarItem(placement: .primaryAction) {
+                    Picker("View", selection: Binding(get: { model.moodboardOpen }, set: { model.setMoodboardOpen($0) })) {
+                        Label("Tracks", systemImage: "list.bullet").tag(false)
+                        Label("Moodboard", systemImage: "point.3.filled.connected.trianglepath.dotted").tag(true)
+                    }
+                    .pickerStyle(.segmented)
+                    .labelStyle(.iconOnly)
+                    .help("Switch between the track list and the moodboard (⇧⌘M)")
+                }
+                ToolbarItem(placement: .primaryAction) {
                     Menu {
                         CollectionMenuItems(collectionID: collectionID)
                     } label: {
@@ -210,7 +219,7 @@ struct MainView: View {
             ArchiveView(store: store)
         case .collection(let id):
             if store.collections[id] != nil {
-                CollectionView(store: store, collectionID: id)
+                CollectionPage(store: store, collectionID: id)
             } else {
                 HomeView(store: store)
             }
@@ -263,7 +272,13 @@ private struct Breadcrumb: View {
             ForEach(Array(steps.enumerated()), id: \.offset) { index, step in
                 Text("/").foregroundStyle(.tertiary)
                 if let destination = step.destination, index < steps.count - 1 {
-                    Button(step.title) { model.selection = destination }
+                    Button(step.title) {
+                        if model.selection == destination {
+                            model.setMoodboardOpen(false)
+                        } else {
+                            model.selection = destination
+                        }
+                    }
                         .buttonStyle(.plain)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -288,6 +303,7 @@ private struct Breadcrumb: View {
         case .archive: return [("Archived", nil)]
         case .collection(let id):
             return archivedPrefix(.collection(id)) + path(store.folder(ofCollection: id)) + [(store.collections[id]?.title ?? "", .collection(id))]
+                + (model.moodboardOpen ? [("Moodboard", nil)] : [])
         case .folder(let id):
             return archivedPrefix(.folder(id)) + path(id)
         }
@@ -412,5 +428,24 @@ struct PopoverRow: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
+    }
+}
+
+/// A collection's page: its track list, or (zoomed out) its moodboard.
+struct CollectionPage: View {
+    @Environment(AppModel.self) private var model
+    let store: LibraryStore
+    let collectionID: UUID
+
+    var body: some View {
+        ZStack {
+            if model.moodboardOpen {
+                MoodboardView(store: store, collectionID: collectionID)
+                    .transition(.scale(scale: 1.18).combined(with: .opacity))
+            } else {
+                CollectionView(store: store, collectionID: collectionID)
+                    .transition(.scale(scale: 0.86).combined(with: .opacity))
+            }
+        }
     }
 }

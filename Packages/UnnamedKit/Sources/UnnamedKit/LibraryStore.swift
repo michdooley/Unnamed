@@ -41,6 +41,8 @@ public final class LibraryStore {
     /// Waveform overviews, per version.
     public internal(set) var peaks: [VersionKey: [UInt8]] = [:]
     public internal(set) var cloudStatus: [UUID: CloudStatus] = [:]
+    /// Moodboards, by collection (only collections that have one).
+    public internal(set) var boards: [UUID: Moodboard] = [:]
     public private(set) var pendingImports: [PendingImport] = []
     public private(set) var isLoaded = false
     /// The most recent problem from a background operation. The UI shows and clears it.
@@ -190,6 +192,7 @@ public final class LibraryStore {
         if comments != snapshot.comments { comments = snapshot.comments }
         if peaks != snapshot.peaks { peaks = snapshot.peaks }
         if cloudStatus != snapshot.cloudStatus { cloudStatus = snapshot.cloudStatus }
+        if boards != snapshot.boards { boards = snapshot.boards }
     }
 
     // MARK: - Queries

@@ -234,6 +234,15 @@ enum DebugSupport {
             NSApp.terminate(nil)
             return
         }
+        if arguments.contains("-boardProbe"), let snippets {
+            await probeBoard(store: store, collectionID: snippets.id)
+            NSApp.terminate(nil)
+            return
+        }
+        if arguments.contains("-boardLab"), let snippets {
+            await shootBoardLab(store: store, collectionID: snippets.id, folder: folder)
+            return
+        }
         if arguments.contains("-glassLab"), let snippets {
             await shootGlassLab(store: store, collectionID: snippets.id, folder: folder)
             return
@@ -425,6 +434,392 @@ enum DebugSupport {
         PlayerDock.animationSpeed = 1
         await show(OnboardingView(), size: CGSize(width: 1100, height: 760), name: "glass-onboarding")
         model.player.stop()
+        log("SNAPSHOTS: \(folder.path)")
+        if arguments.contains("-quitAfterSnapshot") { NSApp.terminate(nil) }
+    }
+
+    /// A moodboard for the demo collection: threads, pictures, words, a doodle.
+    @MainActor
+    static func makeDemoBoard(store: LibraryStore, collectionID: UUID) async {
+        guard store.board(for: collectionID).items.isEmpty else { return }
+        let songs = store.tracks(in: collectionID)
+        let layouts: [(BoardPoint, [BoardPoint])] = [
+            (BoardPoint(0, 0), [.zero, BoardPoint(260, 70), BoardPoint(580, -10)]),
+            (BoardPoint(760, 250), [.zero, BoardPoint(230, -90), BoardPoint(520, 20)]),
+            (BoardPoint(160, 560), [.zero, BoardPoint(320, 40), BoardPoint(640, 0)]),
+            (BoardPoint(980, 700), [.zero, BoardPoint(220, 130), BoardPoint(90, 290), BoardPoint(-90, 170)]),
+        ]
+        var items: [BoardItem] = []
+        for (index, song) in songs.prefix(layouts.count).enumerated() {
+            var item = BoardItem.track(song.id, at: layouts[index].0, duration: song.duration, z: Double(10 + index))
+            item.thread = layouts[index].1
+            items.append(item)
+        }
+        var title = BoardItem(kind: .text, position: BoardPoint(-40, -300), z: 1)
+        title.text = "SIDE A — NIGHT DRIVE"
+        title.fontSize = 58
+        title.width = 900
+        var note = BoardItem(kind: .text, position: BoardPoint(1300, 520), z: 2)
+        note.text = "headlights on wet asphalt,\nthe radio between stations"
+        note.fontSize = 24
+        note.width = 380
+        var doodle = BoardItem(kind: .drawing, position: BoardPoint(1290, 470), z: 3)
+        doodle.points = (0...60).map { i in
+            let t = Double(i) / 60 * 2 * .pi * 1.05
+            return BoardPoint(200 + cos(t) * 230 + sin(t * 3) * 8, 40 + sin(t) * 90)
+        }
+        doodle.color = "#FFD60A"
+        doodle.lineWidth = 3
+        items += [title, note, doodle]
+        store.saveBoardItems(items, in: collectionID)
+        let posters: [(Int, Int, BoardPoint, [UInt32])] = [
+            (1200, 800, BoardPoint(470, 330), [0xFF7A59, 0xB4367A, 0x2B1B5A]),
+            (900, 1200, BoardPoint(1560, 130), [0x2BD4C9, 0x1B5E8C, 0x0B1530]),
+        ]
+        for (width, height, center, palette) in posters {
+            if let data = demoPoster(width: width, height: height, palette: palette) {
+                await store.addBoardImage(data: data, to: collectionID, centeredAt: center)
+            }
+        }
+        await store.flush()
+    }
+
+    /// A gradient "photo" with a sun and horizon stripes.
+    private static func demoPoster(width: Int, height: Int, palette: [UInt32]) -> Data? {
+        guard let space = CGColorSpace(name: CGColorSpace.sRGB),
+              let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0, space: space,
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        func color(_ hex: UInt32, _ alpha: CGFloat = 1) -> CGColor {
+            CGColor(srgbRed: CGFloat((hex >> 16) & 0xFF) / 255, green: CGFloat((hex >> 8) & 0xFF) / 255, blue: CGFloat(hex & 0xFF) / 255, alpha: alpha)
+        }
+        let gradient = CGGradient(colorsSpace: space, colors: palette.reversed().map { color($0) } as CFArray, locations: nil)!
+        context.drawLinearGradient(gradient, start: .zero, end: CGPoint(x: 0, y: height), options: [])
+        let sun = CGRect(x: width / 2 - width / 5, y: height / 3, width: width * 2 / 5, height: width * 2 / 5)
+        context.setFillColor(color(0xFFE6A8, 0.9))
+        context.fillEllipse(in: sun)
+        for i in 0..<9 {
+            context.setFillColor(color(palette[2], 0.85))
+            context.fill(CGRect(x: 0, y: height / 3 + i * 26 + i * i * 2, width: width, height: 6 + i * 2))
+        }
+        guard let image = context.makeImage(),
+              let data = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else { return nil }
+        return data
+    }
+
+    /// Drives a moodboard with synthetic mouse events in a hidden panel (the
+    /// real pointer doesn't move) and checks the edits land.
+    @MainActor
+    private static func probeBoard(store: LibraryStore, collectionID: UUID) async {
+        let model = AppModel.shared
+        let player = model.player
+        await makeDemoBoard(store: store, collectionID: collectionID)
+        UserDefaults.standard.removeObject(forKey: "moodboard.camera.\(collectionID.uuidString)")
+        player.setVolume(0)
+        let size = CGSize(width: 1500, height: 940)
+        let panel = NSPanel(contentRect: CGRect(origin: .zero, size: size), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        panel.contentView = NSHostingView(rootView: MoodboardView(store: store, collectionID: collectionID)
+            .environment(model)
+            .environment(player)
+            .environment(\.liquidGlass, model.liquidGlass && LiquidGlassSupport.isAvailable)
+            .frame(width: size.width, height: size.height))
+        panel.setFrameOrigin(NSScreen.main?.visibleFrame.origin ?? .zero)
+        panel.orderBack(nil)
+        try? await Task.sleep(for: .seconds(2.5))
+        guard let board = BoardModel.latest else {
+            log("FAIL board: never opened")
+            return
+        }
+        var failures = 0
+        func check(_ ok: Bool, _ name: String) {
+            log("\(ok ? "PASS" : "FAIL") board: \(name)")
+            if !ok { failures += 1 }
+        }
+        func send(_ type: NSEvent.EventType, _ point: CGPoint, clicks: Int = 1) {
+            let location = CGPoint(x: point.x, y: size.height - point.y)
+            if let event = NSEvent.mouseEvent(with: type, location: location, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                              windowNumber: panel.windowNumber, context: nil, eventNumber: 0, clickCount: clicks, pressure: 1) {
+                panel.sendEvent(event)
+            }
+        }
+        func drag(_ from: CGPoint, _ to: CGPoint) async {
+            send(.leftMouseDown, from)
+            for step in 1...12 {
+                try? await Task.sleep(for: .milliseconds(12))
+                let t = CGFloat(step) / 12
+                send(.leftMouseDragged, CGPoint(x: from.x + (to.x - from.x) * t, y: from.y + (to.y - from.y) * t))
+            }
+            send(.leftMouseUp, to)
+            try? await Task.sleep(for: .milliseconds(200))
+        }
+        func click(_ point: CGPoint, clicks: Int = 1) async {
+            send(.leftMouseDown, point, clicks: clicks)
+            try? await Task.sleep(for: .milliseconds(30))
+            send(.leftMouseUp, point, clicks: clicks)
+            try? await Task.sleep(for: .milliseconds(60))
+        }
+        func screen(_ p: CGPoint) -> CGPoint { board.camera.screen(p, in: board.size) }
+        func emptySpot() -> CGPoint? {
+            for y in stride(from: 880.0, to: 120, by: -40) {
+                for x in stride(from: 1400.0, to: 300, by: -60) where board.hit(at: CGPoint(x: x, y: y)) == nil {
+                    return CGPoint(x: x, y: y)
+                }
+            }
+            return nil
+        }
+
+        let songs = board.journey
+        guard songs.count >= 3 else {
+            log("FAIL board: demo songs missing")
+            return
+        }
+        // Pulling a thread adds a knot where it was grabbed.
+        let first = songs[0]
+        let knots = first.thread?.count ?? 0
+        let grab = screen(board.path(first).sample(atFraction: 0.3).point)
+        await drag(grab, CGPoint(x: grab.x, y: grab.y + 70))
+        check(board.item(first.id)?.thread?.count == knots + 1, "pulling a thread adds a knot")
+
+        // Dragging a title card moves the whole song.
+        let second = songs[1]
+        let card = board.cardRect(second)
+        let handle = screen(CGPoint(x: card.midX + 50, y: card.midY))
+        let before = second.position
+        await drag(handle, CGPoint(x: handle.x + 120, y: handle.y))
+        let after = board.item(second.id)?.position ?? before
+        check(abs(after.x - before.x - Double(120 / board.camera.zoom)) < 2, "dragging a card moves the song")
+        board.undo()
+        check(board.item(second.id)?.position == before, "undo puts it back")
+
+        // A selection rectangle picks up a picture; Delete removes it; Undo restores it.
+        if let picture = board.items.first(where: { $0.kind == .image }), let start = emptySpot() {
+            board.selection = []
+            let box = board.camera.screen(board.rect(picture), in: board.size)
+            await drag(start, CGPoint(x: box.midX, y: box.midY))
+            check(board.selection.contains(picture.id), "the selection rectangle selects")
+            board.selection = [picture.id]
+            if let delete = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: panel.windowNumber,
+                                             context: nil, characters: "\u{7F}", charactersIgnoringModifiers: "\u{7F}", isARepeat: false, keyCode: 51) {
+                check(board.handleKey(delete), "Delete is handled")
+            }
+            check(board.item(picture.id) == nil, "Delete removes the picture")
+            board.undo()
+            check(board.item(picture.id) != nil, "undo brings it back")
+        } else {
+            check(false, "found a picture and some empty space")
+        }
+
+        // The text tool places text and starts editing it.
+        if let spot = emptySpot() {
+            board.tool = .text
+            await click(spot)
+            let editing = board.editingText
+            check(editing != nil, "the text tool starts a text")
+            if let editing {
+                board.setText("hello board", for: editing)
+                try? await Task.sleep(for: .milliseconds(200))
+                // Return, as someone typing would.
+                if let enter = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: panel.windowNumber,
+                                                context: nil, characters: "\r", charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36) {
+                    panel.sendEvent(enter)
+                }
+                try? await Task.sleep(for: .milliseconds(200))
+                if board.editingText != nil {
+                    log("Return didn't finish the text; finishing it directly")
+                    board.finishEditing()
+                }
+            }
+            check(board.items.contains { $0.text == "hello board" }, "text is saved")
+        }
+
+        // The pen draws.
+        if let spot = emptySpot() {
+            let drawings = board.items.filter { $0.kind == .drawing }.count
+            board.tool = .draw
+            log("pen: key \(panel.isKeyWindow), first responder \(String(describing: panel.firstResponder.map { type(of: $0) }))")
+            await drag(spot, CGPoint(x: spot.x - 90, y: spot.y - 50))
+            log("pen: first try drew \(board.items.filter { $0.kind == .drawing }.count - drawings); key \(panel.isKeyWindow)")
+            await drag(spot, CGPoint(x: spot.x - 90, y: spot.y + 50))
+            log("pen: second try drew \(board.items.filter { $0.kind == .drawing }.count - drawings)")
+            board.tool = .select
+            check(board.items.filter { $0.kind == .drawing }.count == drawings + 2, "the pen draws, straight after typing")
+        }
+
+        // Double-clicking a thread plays the song from that point, and follows it.
+        let third = songs[2]
+        if let trackID = third.trackID, let track = store.tracks[trackID] {
+            board.stopFollowing()
+            board.camera = BoardCamera.fitting(board.rect(third), in: board.size, insets: board.insets, maxZoom: 1)
+            try? await Task.sleep(for: .milliseconds(200))
+            // (Away from the knots: a double-click on a knot removes it.)
+            let spot = screen(board.path(third).sample(atFraction: 0.3).point)
+            await click(spot)
+            await click(spot, clicks: 2)
+            try? await Task.sleep(for: .milliseconds(600))
+            check(player.currentTrackID == trackID, "double-clicking a thread plays its song")
+            check(abs(player.currentTime - track.duration * 0.3) < 2, "…from that point (\(String(format: "%.1f", player.currentTime)) of \(String(format: "%.1f", track.duration)) s)")
+            check(board.following, "…and follows it")
+            let zoom = board.camera.zoom
+            board.zoom(by: 1.5, around: CGPoint(x: 800, y: 400))
+            check(abs(board.camera.zoom - zoom * 1.5) < 0.01 && !board.following, "zooming works and stops following")
+            player.stop()
+        }
+
+        // Undo only touches what it did: an edit from "another device" survives it.
+        if let mine = board.items.first(where: { $0.kind == .drawing }), var theirs = board.items.first(where: { $0.kind == .text && $0.text != "hello board" }) {
+            let before = mine.position
+            board.selection = [mine.id]
+            board.nudge(by: CGSize(width: 40, height: 0))
+            theirs.text = "edited elsewhere"
+            store.saveBoardItems([theirs], in: collectionID)
+            board.undo()
+            check(board.item(mine.id)?.position == before, "undo reverts my change")
+            check(board.item(theirs.id)?.text == "edited elsewhere", "…and leaves another device's alone")
+        }
+
+        // Clicking a resize handle without dragging leaves nothing behind to bring a deleted picture back.
+        if let picture = board.items.first(where: { $0.kind == .image }) {
+            board.selection = [picture.id]
+            try? await Task.sleep(for: .milliseconds(150))
+            let box = board.camera.screen(board.rect(picture), in: board.size)
+            await click(CGPoint(x: box.maxX, y: box.maxY))
+            board.selection = [picture.id]
+            board.deleteSelection()
+            if let spot = emptySpot() {
+                board.tool = .draw
+                await drag(spot, CGPoint(x: spot.x - 40, y: spot.y + 30))
+                board.tool = .select
+            }
+            check(board.item(picture.id) == nil && store.board(for: collectionID).items[picture.id] == nil, "a deleted picture stays deleted")
+            board.undo()
+            board.undo()
+            check(board.item(picture.id) != nil, "undo brings it back")
+        }
+
+        // Typing is saved while it happens, before editing ends.
+        if let spot = emptySpot() {
+            board.tool = .text
+            await click(spot)
+            if let editing = board.editingText {
+                board.setText("still typing", for: editing)
+                try? await Task.sleep(for: .seconds(1.2))
+                check(store.board(for: collectionID).items[editing]?.text == "still typing", "text is saved while typing")
+                board.finishEditing()
+            } else {
+                check(false, "the text tool starts a text (again)")
+            }
+        }
+
+        // Paused while following: the board stops drawing frames.
+        board.startFollowing()
+        player.pause()
+        try? await Task.sleep(for: .milliseconds(300))
+        check(!board.needsFrames, "no frames while paused")
+
+        // The journey keeps its order with shuffle on.
+        let wasShuffled = player.shuffle
+        if !wasShuffled { player.toggleShuffle() }
+        board.playJourney()
+        let journey = board.journey.compactMap(\.trackID)
+        check(player.currentTrackID == journey.first, "the journey starts at the first song on the board")
+        player.next()
+        check(journey.count < 2 || player.currentTrackID == journey[1], "…and goes on in order, shuffle or not")
+        if !wasShuffled { player.toggleShuffle() }
+        player.stop()
+
+        // Edits are on disk.
+        await store.flush()
+        let reopened = LibraryStore(root: store.root)
+        await reopened.load()
+        let saved = reopened.board(for: collectionID)
+        check(saved.items[first.id]?.thread?.count == knots + 1, "the bent thread is saved")
+        check(saved.items.values.contains { $0.text == "hello board" }, "the text is saved")
+        await reopened.close()
+
+        panel.orderOut(nil)
+        log("BOARD PROBE \(failures == 0 ? "OK" : "FAILED (\(failures))")")
+    }
+
+    /// The moodboard in a window behind everything, captured by the handshake driver.
+    @MainActor
+    private static func shootBoardLab(store: LibraryStore, collectionID: UUID, folder: URL) async {
+        let model = AppModel.shared
+        await makeDemoBoard(store: store, collectionID: collectionID)
+        UserDefaults.standard.removeObject(forKey: "moodboard.camera.\(collectionID.uuidString)")
+        model.player.setVolume(0)
+        let size = CGSize(width: 1500, height: 940)
+        let host = NSHostingView(rootView: MoodboardView(store: store, collectionID: collectionID)
+            .environment(model)
+            .environment(model.player)
+            .environment(\.liquidGlass, model.liquidGlass && LiquidGlassSupport.isAvailable)
+            .frame(width: size.width, height: size.height))
+        let window = NSWindow(contentRect: CGRect(origin: .zero, size: size), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = host
+        window.setFrameOrigin(NSScreen.main?.visibleFrame.origin ?? .zero)
+        window.orderBack(nil)
+        func shoot(_ name: String, after delay: Duration) async {
+            try? await Task.sleep(for: delay)
+            log("READY \(name)")
+            let done = folder.appending(path: "\(name).done")
+            for _ in 0..<120 where !FileManager.default.fileExists(atPath: done.path) {
+                try? await Task.sleep(for: .milliseconds(250))
+            }
+        }
+        await shoot("board-1-open", after: .seconds(3))
+        guard let board = BoardModel.latest else {
+            log("FAIL no board")
+            return
+        }
+        board.playJourney()
+        await shoot("board-2-journey", after: .seconds(3.5))
+        log("CPU WINDOW START")
+        try? await Task.sleep(for: .seconds(6))
+        log("CPU WINDOW END")
+        model.player.seek(to: max(0, model.player.duration - 1.5))
+        await shoot("board-3-next-song", after: .seconds(3.2))
+        board.stopFollowing()
+        board.camera = BoardCamera(center: CGPoint(x: 300, y: -20), zoom: 2.2)
+        await shoot("board-4-close", after: .seconds(1))
+        board.camera = BoardCamera(center: CGPoint(x: 700, y: 300), zoom: 0.25)
+        await shoot("board-5-far", after: .seconds(1))
+        model.player.pause()
+        model.liquidGlass = false
+        board.fit()
+        await shoot("board-6-classic", after: .seconds(1.5))
+        model.liquidGlass = true
+        window.orderOut(nil)
+        model.player.stop()
+
+        // An empty board.
+        if let empty = store.collections.values.first(where: { $0.title == "Field Recordings" }) {
+            let blank = NSWindow(contentRect: CGRect(origin: .zero, size: size), styleMask: [.borderless], backing: .buffered, defer: false)
+            blank.contentView = NSHostingView(rootView: MoodboardView(store: store, collectionID: empty.id)
+                .environment(model)
+                .environment(model.player)
+                .environment(\.liquidGlass, model.liquidGlass && LiquidGlassSupport.isAvailable)
+                .frame(width: size.width, height: size.height))
+            blank.setFrameOrigin(NSScreen.main?.visibleFrame.origin ?? .zero)
+            blank.orderBack(nil)
+            await shoot("board-7-empty", after: .seconds(2.5))
+            blank.orderOut(nil)
+        }
+
+        // In the real window, switched to from the collection page.
+        if !NSApp.windows.contains(where: { KeyboardShortcuts.isMainWindow($0) && $0.isVisible }) {
+            // Window ▸ Library brings the library window back.
+            let windowMenu = NSApp.windowsMenu ?? NSApp.mainMenu?.items.first(where: { $0.title == "Window" })?.submenu
+            if let windowMenu, let index = windowMenu.items.firstIndex(where: { $0.title == "Library" }) {
+                windowMenu.performActionForItem(at: index)
+            } else {
+                log("no Window ▸ Unnamed item: " + (windowMenu?.items.map(\.title).joined(separator: ", ") ?? "no menu"))
+            }
+            try? await Task.sleep(for: .seconds(2))
+        }
+        NSApp.windows.first(where: { KeyboardShortcuts.isMainWindow($0) })?.orderFront(nil)
+        model.selection = .collection(collectionID)
+        try? await Task.sleep(for: .seconds(1))
+        model.setMoodboardOpen(true)
+        await shoot("board-8-window", after: .seconds(2.5))
+        model.setMoodboardOpen(false)
         log("SNAPSHOTS: \(folder.path)")
         if arguments.contains("-quitAfterSnapshot") { NSApp.terminate(nil) }
     }

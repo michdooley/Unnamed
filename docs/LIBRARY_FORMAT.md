@@ -13,6 +13,12 @@ An Unnamed library is a folder. Anything that can read files can read it: this a
     <collection-uuid>/
       collection.json
       artwork-<8 hex>.jpg       optional
+      Moodboard/                optional
+        board.json
+        Items/
+          <item-uuid>.json
+        Media/
+          <file>                pictures (.heic or .jpg) and videos (.mov)
   Tracks/
     <track-uuid>/
       track.json
@@ -138,6 +144,38 @@ Free-form UTF-8 text, shared by all versions. An empty note is represented by th
 ```
 
 Roughly 800 loudness values (RMS, normalized so the loudest is 255, with a gentle curve so quiet passages stay visible). It's derived from that version's audio and can be regenerated. It's stored so other devices can draw the waveform before the audio has downloaded. Format 1 kept a single `waveform.json`; if a track's first version has no file in `Waveforms/`, readers use `waveform.json`.
+
+## Moodboards: `Collections/<uuid>/Moodboard/`
+
+A collection's moodboard is a canvas measured in board units (a point at 100% zoom; x grows right, y grows down). Each thing on it is its own file in `Items/`, named by its UUID, so two devices editing different things never touch the same file.
+
+`board.json`:
+
+| key | type | notes |
+| --- | --- | --- |
+| `background` | string | `"#RRGGBB"` |
+| `updatedAt` | date | |
+
+`Items/<item-uuid>.json`:
+
+| key | type | notes |
+| --- | --- | --- |
+| `id` | UUID string | informational; the file name is the ID |
+| `type` | string | `track`, `image`, `video`, `text` or `drawing`. Readers skip types they don't know |
+| `x`, `y` | number | tracks: where the thread starts; everything else: the top-left corner |
+| `z` | number | stacking order, higher in front |
+| `width`, `height` | number | images, videos: size. Text: `width` is the wrapping width |
+| `track` | UUID string | tracks: which song |
+| `thread` | [[x, y]] | tracks: the thread's knots relative to `x`, `y`, the first being `[0, 0]` |
+| `file` | string | images, videos: a file in `Media/` |
+| `text`, `fontSize` | string, number | text |
+| `color` | string | text, drawings: `"#RRGGBB"`; text without one contrasts with the background |
+| `points`, `lineWidth` | [[x, y]], number | drawings: the stroke relative to `x`, `y` |
+| `createdAt`, `updatedAt` | date | |
+
+A song is drawn as a thread: a centripetal Catmull–Rom curve through its knots. Its time runs evenly along the curve's length, start to end, which is where the playhead travels during playback. A new thread is a straight line of 5 units per second of music, between 280 and 1400 units. The journey plays the songs on the board in the collection's order (archived ones are skipped), regardless of shuffle. A track item whose song isn't in the collection (or no longer exists) is kept but not shown.
+
+Pictures are stored as HEIC (JPEG where HEIC can't be written), at most 2048 pixels on the long side. Videos are re-encoded as HEVC (H.264 where HEVC isn't available) at most 1080p. Removing an item removes its JSON file; its media file is deleted once no item has named it for a day, so Undo, and devices still syncing, can find it. Which files are in use is read from the `file` key of every item file, whatever its type; while any item file can't be read, nothing is deleted.
 
 ## Sync and conflicts
 

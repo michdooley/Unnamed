@@ -9,6 +9,7 @@ struct LibrarySnapshot: Sendable, Equatable {
     var comments: [UUID: [TrackComment]] = [:]
     var peaks: [VersionKey: [UInt8]] = [:]
     var cloudStatus: [UUID: CloudStatus] = [:]
+    var boards: [UUID: Moodboard] = [:]
 }
 
 /// Owns all file I/O for a library. Being an actor serialises reads and
@@ -62,6 +63,9 @@ actor LibraryDisk {
             guard var collection = cachedJSON(TrackCollection.self, at: file) else { continue }
             collection.id = id
             snapshot.collections[id] = collection
+            if let board = scanBoard(of: id, seen: &seen) {
+                snapshot.boards[id] = board
+            }
         }
 
         for dir in Self.subdirectories(of: layout.foldersDir) {
@@ -144,8 +148,60 @@ actor LibraryDisk {
         return snapshot
     }
 
+    /// A collection's moodboard, if it has one.
+    private func scanBoard(of collectionID: UUID, seen: inout Set<URL>) -> Moodboard? {
+        let dir = layout.boardDir(collectionID)
+        guard FileManager.default.fileExists(atPath: dir.path) else { return nil }
+        var board = Moodboard()
+        let settingsURL = layout.boardFile(collectionID)
+        seen.insert(settingsURL)
+        if let settings = cachedJSON(BoardSettings.self, at: settingsURL) {
+            board.settings = settings
+        }
+        for url in Self.files(in: layout.boardItemsDir(collectionID)) where url.pathExtension == "json" {
+            guard let itemID = UUID(uuidString: url.deletingPathExtension().lastPathComponent) else { continue }
+            seen.insert(url)
+            guard var item = cachedJSON(BoardItem.self, at: url) else { continue }
+            item.id = itemID
+            board.items[itemID] = item
+        }
+        return board
+    }
+
     func cloudStatus(of url: URL) -> CloudStatus {
         Self.cloudStatus(of: url)
+    }
+
+    /// Moves a finished file (e.g. an encoded video in a temporary folder) into the library.
+    func moveIntoPlace(_ source: URL, to destination: URL) throws {
+        try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Self.coordinated(writingAt: destination, options: .forReplacing) { url in
+            if FileManager.default.fileExists(atPath: url.path) {
+                try FileManager.default.removeItem(at: url)
+            }
+            try FileManager.default.moveItem(at: source, to: url)
+        }
+    }
+
+    /// The media files a board's items name, read from the raw JSON (so items
+    /// of a type this version doesn't know still count). Nil if any item file
+    /// can't be read, or is still only a placeholder from iCloud.
+    func boardMediaInUse(of collectionID: UUID) -> Set<String>? {
+        let dir = layout.boardItemsDir(collectionID)
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []
+        var used = Set<String>()
+        for name in names {
+            if name.hasSuffix(".icloud") { return nil }
+            guard name.hasSuffix(".json") else { continue }
+            guard let data = try? Data(contentsOf: dir.appending(path: name)),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+            if let file = object["file"] as? String { used.insert(file) }
+        }
+        return used
+    }
+
+    func boardMediaFiles(of collectionID: UUID) -> [URL] {
+        Self.files(in: layout.boardMediaDir(collectionID))
     }
 
     /// Every track ID listed by a collection on disk right now (other than

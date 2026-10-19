@@ -3,6 +3,7 @@ import UnnamedKit
 
 struct AppCommands: Commands {
     let model: AppModel
+    @Environment(\.openWindow) private var openWindow
 
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
@@ -27,6 +28,20 @@ struct AppCommands: Commands {
             Button("Create Library…") { model.createLibraryInICloud() }
             Button("Show Library in Finder") { model.revealLibraryInFinder() }
                 .disabled(model.store == nil)
+        }
+
+        CommandGroup(before: .windowArrangement) {
+            // Brings the library window back after it's been closed.
+            Button("Library") { openWindow(id: "main") }
+                .keyboardShortcut("1")
+            Divider()
+        }
+
+        CommandGroup(before: .sidebar) {
+            Button(model.moodboardOpen ? "Show Track List" : "Show Moodboard") { model.setMoodboardOpen(!model.moodboardOpen) }
+                .keyboardShortcut("m", modifiers: [.command, .shift])
+                .disabled(model.selectedCollectionID == nil)
+            Divider()
         }
 
         CommandMenu("Find") {

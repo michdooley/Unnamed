@@ -6,7 +6,8 @@ import Foundation
 /// <Library>/
 ///   library.json
 ///   Folders/<uuid>/folder.json
-///   Collections/<uuid>/collection.json, artwork-*.jpg
+///   Collections/<uuid>/collection.json, artwork-*.jpg,
+///                      Moodboard/board.json, Items/<uuid>.json, Media/<file>
 ///   Tracks/<uuid>/track.json, <audio files>, artwork-*.jpg, notes.md,
 ///                 Versions/<uuid>.json, Waveforms/<version>.json, Comments/<uuid>.json
 /// ```
@@ -37,6 +38,31 @@ public struct LibraryLayout: Sendable, Hashable {
 
     func collectionFile(_ id: UUID) -> URL {
         collectionDir(id).appending(path: "collection.json", directoryHint: .notDirectory)
+    }
+
+    func boardDir(_ collectionID: UUID) -> URL {
+        collectionDir(collectionID).appending(path: "Moodboard", directoryHint: .isDirectory)
+    }
+
+    func boardFile(_ collectionID: UUID) -> URL {
+        boardDir(collectionID).appending(path: "board.json", directoryHint: .notDirectory)
+    }
+
+    func boardItemsDir(_ collectionID: UUID) -> URL {
+        boardDir(collectionID).appending(path: "Items", directoryHint: .isDirectory)
+    }
+
+    func boardItemFile(_ collectionID: UUID, item: UUID) -> URL {
+        boardItemsDir(collectionID).appending(path: "\(item.uuidString).json", directoryHint: .notDirectory)
+    }
+
+    func boardMediaDir(_ collectionID: UUID) -> URL {
+        boardDir(collectionID).appending(path: "Media", directoryHint: .isDirectory)
+    }
+
+    /// A picture or video on a collection's moodboard.
+    public func boardMediaURL(collectionID: UUID, file: String) -> URL {
+        boardMediaDir(collectionID).appending(path: file, directoryHint: .notDirectory)
     }
 
     func trackDir(_ id: UUID) -> URL {

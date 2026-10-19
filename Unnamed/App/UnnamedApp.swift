@@ -52,6 +52,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Lets pending writes (like notes still being typed) reach the disk.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        // Text being typed on a moodboard is saved first.
+        BoardModel.current?.finishEditing()
         AppModel.shared.store?.waitForWrites(timeout: 5)
         return .terminateNow
     }
