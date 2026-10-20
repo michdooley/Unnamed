@@ -204,7 +204,7 @@ private struct SyncFooter: View {
                     Text("Importing \(store.pendingImports.count) track\(store.pendingImports.count == 1 ? "" : "s")…")
                 }
             }
-            Label(store.isInCloud ? "iCloud Drive" : "On this Mac", systemImage: store.isInCloud ? "icloud" : "internaldrive")
+            Label(store.sync.label, systemImage: store.sync.systemImage)
                 .help(store.root.path)
         }
         .font(.system(size: 11))

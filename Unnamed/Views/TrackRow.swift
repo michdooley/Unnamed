@@ -130,7 +130,7 @@ struct TrackRow: View {
                     Text(names.joined(separator: ", "))
                 }
             }
-            CloudBadge(status: store.cloudStatus[track.id])
+            CloudBadge(status: store.cloudStatus[track.id], cloud: store.sync.cloudName)
         }
     }
 }
@@ -169,22 +169,24 @@ struct CompactLabelStyle: LabelStyle {
 /// Shows when a track's audio isn't simply on this Mac.
 struct CloudBadge: View {
     let status: CloudStatus?
+    /// Where the audio is when it isn't here: "iCloud", "Dropbox"…
+    var cloud = "iCloud"
 
     var body: some View {
         switch status {
         case .notDownloaded:
             Image(systemName: "icloud.and.arrow.down")
-                .help("In iCloud — downloads when you play it")
+                .help("In \(cloud) — downloads when you play it")
         case .downloading:
             Image(systemName: "icloud.and.arrow.down")
                 .symbolEffect(.pulse)
-                .help("Downloading from iCloud…")
+                .help("Downloading from \(cloud)…")
         case .uploading:
             Image(systemName: "icloud.and.arrow.up")
-                .help("Uploading to iCloud…")
+                .help("Uploading to \(cloud)…")
         case .missing:
             Image(systemName: "exclamationmark.icloud")
-                .help("The audio file hasn't arrived from iCloud yet")
+                .help("The audio file hasn't arrived from \(cloud) yet")
         case .local, .downloaded, nil:
             EmptyView()
         }

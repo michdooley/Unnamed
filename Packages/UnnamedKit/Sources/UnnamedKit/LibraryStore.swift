@@ -30,8 +30,12 @@ public struct PendingImport: Identifiable, Hashable, Sendable {
 public final class LibraryStore {
     public let layout: LibraryLayout
     public var root: URL { layout.root }
-    /// Whether the library folder lives in iCloud Drive.
+    /// Whether files can be in the cloud only, downloading when they're
+    /// needed: iCloud Drive, or another service built on Apple's File
+    /// Provider (Dropbox, Google Drive, OneDrive…).
     public let isInCloud: Bool
+    /// What keeps the library folder in step with other devices.
+    public let sync: LibrarySync
 
     public internal(set) var tracks: [UUID: Track] = [:]
     public internal(set) var collections: [UUID: TrackCollection] = [:]
@@ -77,6 +81,7 @@ public final class LibraryStore {
         layout = LibraryLayout(root: root)
         disk = LibraryDisk(layout: layout)
         isInCloud = Self.isUbiquitous(root)
+        sync = LibrarySync.detect(root)
         let (stream, continuation) = AsyncStream<WriteJob>.makeStream()
         writes = continuation
         let disk = disk
@@ -781,6 +786,7 @@ public final class LibraryStore {
             return true
         }
         // A folder that doesn't exist yet can't report it; fall back to the path.
-        return url.standardizedFileURL.path.contains("/Library/Mobile Documents/")
+        let path = url.standardizedFileURL.path
+        return path.contains("/Library/Mobile Documents/") || path.contains("/Library/CloudStorage/")
     }
 }

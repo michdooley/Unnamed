@@ -79,6 +79,14 @@ Unnamed Library/
 
 iCloud Drive moves the files between devices. The app watches the folder, picks up changes as they arrive, and writes through `NSFileCoordinator` the way iCloud expects. Each comment is its own file, and notes are separate from metadata, so edits made on two devices at once rarely touch the same file. When they do, the newest version wins.
 
+iCloud Drive is the recommended home (it's what onboarding suggests), but since the library is just files, any service that syncs a folder works too:
+
+- **Dropbox, Google Drive, OneDrive, Box, Proton Drive** and other services built on Apple's File Provider keep their folders in `~/Library/CloudStorage`. They behave like iCloud Drive: audio can stay in the cloud, shows a cloud badge, and downloads when you play it.
+- **Syncthing, Nextcloud's desktop client, Resilio Sync, Synology Drive** and other tools that keep a full copy on every device.
+- **A network drive**, for a library everyone on a home server shares.
+
+Choose "Use Another Folder…" when you create a library, or open an existing one anywhere. The sidebar and Settings show which service the app thinks is syncing it. When one of these services leaves a conflict copy beside a file (Dropbox's "(conflicted copy)", Syncthing's ".sync-conflict-…", OneDrive's "-DeviceName"…), the app keeps the newest edit under the file's own name and moves the other to the Trash, the same rule iCloud Drive conflicts follow.
+
 Why not CloudKit? CloudKit needs a paid Apple Developer membership for every person who builds the app. It would also put your library in a database only this app can read. A folder works with a free account and stays readable without the app. You can back it up, move it, or share it as an iCloud Drive shared folder to collaborate.
 
 ## Project layout

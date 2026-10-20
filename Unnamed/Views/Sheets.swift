@@ -116,7 +116,7 @@ struct SettingsView: View {
     var body: some View {
         @Bindable var model = model
         Form {
-            Section("Library") {
+            Section {
                 if let store = model.store {
                     LabeledContent("Location") {
                         Text(store.root.path)
@@ -125,10 +125,7 @@ struct SettingsView: View {
                             .truncationMode(.middle)
                     }
                     LabeledContent("Sync") {
-                        Label(
-                            store.isInCloud ? "iCloud Drive" : "This Mac only (not syncing)",
-                            systemImage: store.isInCloud ? "icloud" : "internaldrive"
-                        )
+                        Label(store.sync.syncs ? store.sync.name : "This Mac only (not syncing)", systemImage: store.sync.systemImage)
                     }
                 } else {
                     Text("No library open.")
@@ -139,6 +136,13 @@ struct SettingsView: View {
                         .disabled(model.store == nil)
                     Button("Open Library…") { model.chooseExistingLibrary() }
                     Button("Create Library…") { model.createLibraryInICloud() }
+                }
+            } header: {
+                Text("Library")
+            } footer: {
+                if let store = model.store {
+                    Text(store.sync.summary)
+                        .foregroundStyle(.secondary)
                 }
             }
             if LiquidGlassSupport.isAvailable {
@@ -186,7 +190,7 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
             Section("About") {
-                Text("Unnamed is open source. Your library is plain files — audio, JSON and Markdown — in a folder you control. Nothing is uploaded anywhere except your own iCloud Drive.")
+                Text("Unnamed is open source. Your library is plain files — audio, JSON and Markdown — in a folder you control. Nothing is uploaded anywhere except where you keep your library: your own iCloud Drive, or whichever sync service you choose.")
                     .foregroundStyle(.secondary)
             }
         }

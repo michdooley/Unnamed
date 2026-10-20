@@ -28,9 +28,12 @@ actor LibraryDisk {
     }
 
     private var cache: [URL: CacheEntry] = [:]
+    /// What becomes of the losing side of a sync conflict (the Trash, so it can be recovered).
+    private let discard: @Sendable (URL) throws -> Void
 
-    init(layout: LibraryLayout) {
+    init(layout: LibraryLayout, discard: @escaping @Sendable (URL) throws -> Void = LibraryDisk.moveToTrash) {
         self.layout = layout
+        self.discard = discard
     }
 
     // MARK: - Setup
@@ -53,10 +56,12 @@ actor LibraryDisk {
     func scan() -> LibrarySnapshot {
         var snapshot = LibrarySnapshot()
         var seen = Set<URL>()
+        settleConflictCopies(in: layout.root, of: [layout.manifestFile.lastPathComponent])
 
         for dir in Self.subdirectories(of: layout.collectionsDir) {
             guard let id = UUID(uuidString: dir.lastPathComponent) else { continue }
             let file = layout.collectionFile(id)
+            settleConflictCopies(in: dir, of: [file.lastPathComponent])
             seen.insert(file)
             // The folder name is the source of truth for the ID, so a folder
             // duplicated in Finder becomes a separate collection.
@@ -71,6 +76,7 @@ actor LibraryDisk {
         for dir in Self.subdirectories(of: layout.foldersDir) {
             guard let id = UUID(uuidString: dir.lastPathComponent) else { continue }
             let file = layout.folderFile(id)
+            settleConflictCopies(in: dir, of: [file.lastPathComponent])
             seen.insert(file)
             guard var folder = cachedJSON(LibraryFolder.self, at: file) else { continue }
             folder.id = id
@@ -80,6 +86,10 @@ actor LibraryDisk {
         for dir in Self.subdirectories(of: layout.tracksDir) {
             guard let id = UUID(uuidString: dir.lastPathComponent) else { continue }
             let file = layout.trackFile(id)
+            settleConflictCopies(in: dir, of: [file, layout.notesFile(id), layout.legacyWaveformFile(id)].map(\.lastPathComponent))
+            for entities in [layout.versionsDir(id), layout.commentsDir(id), layout.waveformsDir(id)] {
+                settleConflictCopies(amongEntitiesIn: entities)
+            }
             seen.insert(file)
             guard var track = cachedJSON(Track.self, at: file) else { continue }
             let declaredID = track.id
@@ -155,6 +165,8 @@ actor LibraryDisk {
         var board = Moodboard()
         let settingsURL = layout.boardFile(collectionID)
         seen.insert(settingsURL)
+        settleConflictCopies(in: dir, of: [settingsURL.lastPathComponent])
+        settleConflictCopies(amongEntitiesIn: layout.boardItemsDir(collectionID))
         if let settings = cachedJSON(BoardSettings.self, at: settingsURL) {
             board.settings = settings
         }
@@ -170,6 +182,84 @@ actor LibraryDisk {
 
     func cloudStatus(of url: URL) -> CloudStatus {
         Self.cloudStatus(of: url)
+    }
+
+    // MARK: - Conflict copies
+
+    /// Settles the copies sync services leave beside fixed-name files
+    /// (`track.json`, `notes.md`…) in a folder.
+    func settleConflictCopies(in directory: URL, of originals: [String]) {
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
+        for original in originals {
+            let copies = names.filter { ConflictCopies.isCopy($0, of: original) }
+            if !copies.isEmpty { settle(original, copies: copies, in: directory) }
+        }
+    }
+
+    /// The same for a folder of `<UUID>.json` files (versions, comments…).
+    func settleConflictCopies(amongEntitiesIn directory: URL) {
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
+        var copies: [String: [String]] = [:]
+        for name in names where name.hasSuffix(".json") && name.count > 41 {
+            let stem = String(name.prefix(36))
+            guard UUID(uuidString: stem) != nil, ConflictCopies.isCopy(name, of: stem + ".json") else { continue }
+            copies[stem + ".json", default: []].append(name)
+        }
+        for (original, copies) in copies { settle(original, copies: copies, in: directory) }
+    }
+
+    /// Keeps the newest of a file and its conflict copies under the file's
+    /// name (newest by its `updatedAt`, else by when it was written), and
+    /// moves the rest to the Trash. Waits while any of them is still only in
+    /// the cloud.
+    private func settle(_ original: String, copies: [String], in directory: URL) {
+        let fm = FileManager.default
+        let originalURL = directory.appending(path: original)
+        let copyURLs = copies.map { directory.appending(path: $0) }
+        let originalExists = fm.fileExists(atPath: originalURL.path)
+        let candidates = copyURLs + (originalExists ? [originalURL] : [])
+        guard !candidates.contains(where: Self.isOnlyInCloud) else { return }
+        guard let newest = candidates.max(by: { Self.stamp(of: $0) < Self.stamp(of: $1) }) else { return }
+        do {
+            for url in candidates where url != newest { try discard(url) }
+            if newest != originalURL {
+                try Self.coordinated(writingAt: newest, options: .forMoving) { url in
+                    try fm.moveItem(at: url, to: originalURL)
+                }
+            }
+        } catch {
+            // Tried again on the next scan.
+        }
+        cache[originalURL] = nil
+    }
+
+    /// When a metadata file was last changed: its `updatedAt` if it has one.
+    private static func stamp(of url: URL) -> Date {
+        struct Stamped: Decodable { var updatedAt: Date? }
+        if url.pathExtension == "json", let data = try? Data(contentsOf: url),
+           let date = (try? LibraryJSON.decoder().decode(Stamped.self, from: data))?.updatedAt {
+            return date
+        }
+        return (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+    }
+
+    /// A placeholder whose contents haven't been downloaded (any cloud
+    /// service built on File Provider, iCloud Drive included).
+    static func isOnlyInCloud(_ url: URL) -> Bool {
+        var info = stat()
+        guard stat(url.path, &info) == 0 else { return false }
+        return info.st_flags & UInt32(SF_DATALESS) != 0
+    }
+
+    /// To the Trash, or gone where there isn't one (some network drives).
+    static let moveToTrash: @Sendable (URL) throws -> Void = { url in
+        try coordinated(writingAt: url, options: .forDeleting) { url in
+            do {
+                try FileManager.default.trashItem(at: url, resultingItemURL: nil)
+            } catch {
+                try FileManager.default.removeItem(at: url)
+            }
+        }
     }
 
     /// Moves a finished file (e.g. an encoded video in a temporary folder) into the library.

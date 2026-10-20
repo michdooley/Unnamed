@@ -388,7 +388,7 @@ enum DebugSupport {
             }
         }
         window.orderOut(nil)
-        await renderStandalone(SettingsView(), size: CGSize(width: 540, height: 760), name: "settings", folder: folder)
+        await renderStandalone(SettingsView(), size: CGSize(width: 540, height: 1100), name: "settings", folder: folder)
         log("SNAPSHOTS: \(folder.path)")
         if arguments.contains("-quitAfterSnapshot") { quit() }
     }
@@ -1125,7 +1125,13 @@ enum DebugSupport {
                 try? await Task.sleep(for: .milliseconds(250))
             }
         }
-        NSApp.activate()
+        await openMainWindow()
+        if arguments.contains("-behind"), let window = NSApp.windows.first(where: { $0.isVisible && $0.styleMask.contains(.titled) }) {
+            window.collectionBehavior.formUnion([.canJoinAllSpaces, .fullScreenAuxiliary])
+            window.orderBack(nil)
+        } else {
+            NSApp.activate()
+        }
         await shoot("0a-launch", after: .milliseconds(500))
         await shoot("0b-onboarding", after: .seconds(2))
         await shoot("0c-onboarding-later", after: .seconds(3))

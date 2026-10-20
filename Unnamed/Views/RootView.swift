@@ -99,7 +99,7 @@ struct OnboardingView: View {
                     .font(.system(size: 34, weight: .semibold))
                     .foregroundStyle(.white)
                     .padding(.top, 18)
-                Text("A home for your music ideas. Your library is a plain folder you own. Put it in iCloud Drive and it syncs to your other devices through your own iCloud account. No servers, no subscriptions, no training on your music.")
+                Text("A home for your music ideas. Your library is a plain folder you own: no servers, no subscriptions, no training on your music.")
                     .font(.system(size: 15))
                     .foregroundStyle(.white.opacity(0.72))
                     .multilineTextAlignment(.center)
@@ -120,38 +120,49 @@ struct OnboardingView: View {
                     .padding(.top, 20)
                 }
 
+                // iCloud Drive first: it syncs with nothing else to install.
                 VStack(spacing: 10) {
                     Button {
                         model.createLibraryInICloud()
                     } label: {
                         Label("Create Library in iCloud Drive…", systemImage: "icloud")
                             .font(.system(size: 15, weight: .semibold))
-                            .frame(width: 290, height: 44)
+                            .frame(width: 320, height: 46)
                             .background(Capsule().fill(.white))
                             .foregroundStyle(.black)
                             .contentShape(Capsule())
                     }
                     .buttonStyle(.plain)
 
-                    Button {
-                        model.chooseExistingLibrary()
-                    } label: {
-                        Text(model.reconnectPath == nil ? "Open Existing Library…" : "Reconnect Library…")
-                            .font(.system(size: 15, weight: .medium))
-                            .frame(width: 290, height: 44)
-                            .background(Capsule().fill(.white.opacity(0.12)))
-                            .overlay(Capsule().strokeBorder(.white.opacity(glass ? 0.28 : 0.2)))
-                            .foregroundStyle(.white)
-                            .contentShape(Capsule())
+                    if iCloudDriveIsOn {
+                        Text("Recommended. Syncs to your other Macs through your own iCloud account.")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.white.opacity(glass ? 0.7 : 0.6))
+                    } else {
+                        HStack(spacing: 6) {
+                            Image(systemName: "exclamationmark.icloud")
+                            Text("iCloud Drive is off on this Mac.")
+                            Button("Turn It On…") { model.openICloudSettings() }
+                                .buttonStyle(.link)
+                        }
+                        .font(.system(size: 12))
+                        .foregroundStyle(.white.opacity(0.8))
                     }
-                    .buttonStyle(.plain)
                 }
                 .padding(.top, 30)
 
-                Text("Not using iCloud? Choose any folder; it just won't sync.")
+                HStack(spacing: 10) {
+                    secondaryButton("Use Another Folder…") { model.createLibraryInAnotherFolder() }
+                    secondaryButton(model.reconnectPath == nil ? "Open Existing Library…" : "Reconnect Library…") { model.chooseExistingLibrary() }
+                }
+                .padding(.top, 22)
+
+                Text("Dropbox, Google Drive, OneDrive, Syncthing, Nextcloud: a library in a folder they keep syncs through them. Anywhere else, it stays on this Mac.")
                     .font(.system(size: 12))
                     .foregroundStyle(.white.opacity(glass ? 0.6 : 0.45))
-                    .padding(.top, 16)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 420)
+                    .padding(.top, 12)
             }
             .padding(40)
             // In Liquid Glass mode the welcome sits on a slab of glass, with
@@ -160,6 +171,23 @@ struct OnboardingView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .environment(\.colorScheme, .dark)
+    }
+
+    private var iCloudDriveIsOn: Bool {
+        LibraryLocation.iCloudDriveIsAvailable
+    }
+
+    private func secondaryButton(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 14, weight: .medium))
+                .frame(width: 205, height: 40)
+                .background(Capsule().fill(.white.opacity(0.12)))
+                .overlay(Capsule().strokeBorder(.white.opacity(glass ? 0.28 : 0.2)))
+                .foregroundStyle(.white)
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
     }
 }
 

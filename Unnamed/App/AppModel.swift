@@ -251,15 +251,32 @@ final class AppModel {
 
     // MARK: - Choosing a library
 
+    /// Creates a library, suggesting iCloud Drive (the way to sync that needs nothing else).
     func createLibraryInICloud() {
+        createLibrary(
+            in: LibraryLocation.iCloudDriveIsAvailable ? LibraryLocation.iCloudDriveDirectory : nil,
+            message: "Choose where to keep your library. In iCloud Drive it syncs to your other Macs through your iCloud account."
+        )
+    }
+
+    /// Creates a library in any folder: one another sync service keeps
+    /// (Dropbox, Google Drive, OneDrive, Syncthing…), or just on this Mac.
+    func createLibraryInAnotherFolder() {
+        createLibrary(
+            in: LibraryLocation.realHomeDirectory,
+            message: "Choose a folder for your library. In a folder that Dropbox, Google Drive, OneDrive, Syncthing or another sync service keeps, it syncs through that service. Anywhere else, it stays on this Mac."
+        )
+    }
+
+    private func createLibrary(in directory: URL?, message: String) {
         let panel = NSSavePanel()
         panel.title = "Create Library"
-        panel.message = "Choose where to keep your library. Put it in iCloud Drive to sync it to your other devices."
+        panel.message = message
         panel.prompt = "Create"
         panel.nameFieldLabel = "Library name:"
         panel.nameFieldStringValue = "Unnamed Library"
         panel.canCreateDirectories = true
-        panel.directoryURL = LibraryLocation.iCloudDriveDirectory
+        if let directory { panel.directoryURL = directory }
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do {
             try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
@@ -286,6 +303,13 @@ final class AppModel {
         }
         guard panel.runModal() == .OK, let url = panel.url else { return }
         Task { await open(url, remember: true) }
+    }
+
+    /// Where to turn iCloud Drive on.
+    func openICloudSettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preferences.AppleIDPrefPane") {
+            NSWorkspace.shared.open(url)
+        }
     }
 
     func revealLibraryInFinder() {

@@ -80,7 +80,7 @@ struct CollectionView: View {
                         .onTapGesture(count: 2) { model.promptRename(collectionID: collectionID) }
                         .help("Double-click to rename")
                     HStack(spacing: 5) {
-                        Image(systemName: store.isInCloud ? "icloud" : "internaldrive")
+                        Image(systemName: store.sync.systemImage)
                             .font(.system(size: 12))
                         Text("\(Format.trackCount(tracks.count)) · \(Format.length(store.totalDuration(of: collectionID)))")
                     }

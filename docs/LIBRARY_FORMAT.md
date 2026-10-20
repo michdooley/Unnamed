@@ -183,4 +183,6 @@ Pictures are stored as HEIC (JPEG where HEIC can't be written), at most 2048 pix
 
 ## Sync and conflicts
 
-The folder is meant to live in iCloud Drive, but any sync tool works. Data is split into many small files so that concurrent edits on two devices rarely collide. When iCloud does report a conflict on a JSON file, the version with the newest modification date wins and the others are discarded.
+The folder is meant to live in iCloud Drive, but any sync tool works (Dropbox, Google Drive, OneDrive, Syncthing, Nextcloud, a network share…). Data is split into many small files so that concurrent edits on two devices rarely collide. When iCloud does report a conflict on a JSON file, the version with the newest modification date wins and the others are discarded.
+
+Other sync tools leave conflict copies beside the file instead: Dropbox's `name (Sam's conflicted copy 2026-10-19).json`, Syncthing's `name.sync-conflict-20261019-153012-ABC1234.json`, OneDrive's `name-MacBook.json`, Nextcloud's `name (conflicted copy 2026-10-19 153012).json`, or `name 2.json`. For the library's own metadata files (the fixed-name files and the `<uuid>.json` files above), a copy is a file whose name is the original's name, then a space, `-`, `_`, `.` or `(` and more, with the same extension. Readers keep the newest (by `updatedAt`, else modification date) under the original's name and move the others to the Trash, waiting while any of them hasn't downloaded yet. Audio, artwork and moodboard media are never treated as conflict copies: their names can legitimately end in " 2".

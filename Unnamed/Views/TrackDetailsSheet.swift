@@ -163,7 +163,7 @@ struct TrackDetailsSheet: View {
                             }
                             .disabled(status == .downloading)
                         } else {
-                            ActionRow(title: "Remove download", systemImage: "icloud.and.arrow.up", detail: "Keeps it in iCloud") {
+                            ActionRow(title: "Remove download", systemImage: "icloud.and.arrow.up", detail: "Keeps it in \(store.sync.cloudName)") {
                                 store.removeDownload(trackID)
                             }
                         }
