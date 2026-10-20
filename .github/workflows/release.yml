@@ -1,0 +1,48 @@
+# Builds the downloadable app and attaches it to a GitHub Release whenever a
+# version tag is pushed:
+#
+#   git tag v0.1.0 && git push origin v0.1.0
+#
+# Run it by hand (Actions › Release › Run workflow) to get the build as a
+# workflow artifact without publishing a release.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    # The app needs the macOS 26 SDK (Xcode 26).
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Xcode
+        run: |
+          xcodebuild -version
+          # Xcode 26 ships the Metal compiler separately.
+          xcodebuild -downloadComponent MetalToolchain || true
+
+      - name: Build the app
+        run: Scripts/make-release.sh
+
+      - name: Keep the build
+        uses: actions/upload-artifact@v4
+        with:
+          name: Unnamed
+          path: build/release/*
+
+      - name: Publish the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" build/release/* \
+            --title "Unnamed ${GITHUB_REF_NAME#v}" \
+            --generate-notes \
+            --notes-file .github/release-notes.md

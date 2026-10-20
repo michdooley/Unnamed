@@ -1,0 +1,1203 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Unnamed — Free, Open-Source Music WIP Tracker for Mac</title>
+<meta name="description" content="Free, open-source Mac app for music demos and WIPs: version history, timestamped comments, key and BPM detection and iCloud sync. An [untitled] alternative.">
+<link rel="canonical" href="https://michdooley.github.io/Unnamed/">
+<meta name="robots" content="index, follow, max-image-preview:large">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0e0c17">
+<link rel="icon" type="image/png" sizes="64x64" href="images/icon-64.png">
+<link rel="apple-touch-icon" href="images/icon-180.png">
+
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Unnamed">
+<meta property="og:locale" content="en_US">
+<meta property="og:url" content="https://michdooley.github.io/Unnamed/">
+<meta property="og:title" content="Unnamed: the free, open-source music WIP tracker for Mac">
+<meta property="og:description" content="Every demo, voice memo, bounce and beat in one place. Version history, timestamped comments, key and BPM detection, and sync through your own iCloud Drive. No subscription.">
+<meta property="og:image" content="https://michdooley.github.io/Unnamed/images/og.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Unnamed's welcome screen: iridescent CDs spinning around a Welcome to Unnamed card">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Unnamed: the free, open-source music WIP tracker for Mac">
+<meta name="twitter:description" content="Every demo, voice memo, bounce and beat in one place. Version history, timestamped comments, key and BPM detection, and sync through your own iCloud Drive. No subscription.">
+<meta name="twitter:image" content="https://michdooley.github.io/Unnamed/images/og.jpg">
+<meta name="twitter:image:alt" content="Unnamed's welcome screen: iridescent CDs spinning around a Welcome to Unnamed card">
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "SoftwareApplication",
+      "@id": "https://michdooley.github.io/Unnamed/#app",
+      "name": "Unnamed",
+      "description": "A free, open-source music work-in-progress tracker for Mac. Keep every demo, voice memo and bounce in one place, with version history, timestamped comments, automatic key and BPM detection, moodboards, and sync through your own iCloud Drive or any synced folder.",
+      "url": "https://michdooley.github.io/Unnamed/",
+      "image": "https://michdooley.github.io/Unnamed/images/og.jpg",
+      "screenshot": [
+        "https://michdooley.github.io/Unnamed/images/collection.png",
+        "https://michdooley.github.io/Unnamed/images/versions.png",
+        "https://michdooley.github.io/Unnamed/images/folder.png"
+      ],
+      "applicationCategory": "MultimediaApplication",
+      "applicationSubCategory": "Music",
+      "operatingSystem": "macOS 15 or later",
+      "downloadUrl": "https://github.com/michdooley/Unnamed/releases/latest",
+      "license": "https://opensource.org/licenses/MIT",
+      "isAccessibleForFree": true,
+      "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+      "featureList": [
+        "Version history for every song",
+        "Waveform player with timestamped comments",
+        "Automatic key and BPM detection",
+        "Collections, folders and an archive",
+        "Moodboards with Play Journey",
+        "DJ scratching",
+        "Sync through iCloud Drive, Dropbox, Google Drive, OneDrive, Syncthing or Nextcloud"
+      ],
+      "sameAs": ["https://github.com/michdooley/Unnamed"]
+    },
+    {
+      "@type": "SoftwareSourceCode",
+      "name": "Unnamed",
+      "codeRepository": "https://github.com/michdooley/Unnamed",
+      "programmingLanguage": "Swift",
+      "license": "https://opensource.org/licenses/MIT",
+      "targetProduct": { "@id": "https://michdooley.github.io/Unnamed/#app" }
+    },
+    {
+      "@type": "FAQPage",
+      "mainEntity": [
+        {
+          "@type": "Question",
+          "name": "Is Unnamed really free?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Yes. It's open source under the MIT license, with no account, subscription, ads or tracking."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Is it a good [untitled] alternative?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "For organizing, versioning, commenting on and listening to works in progress on a Mac, yes. It doesn't have an iPhone app or share links yet."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Where is my music stored?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "In a folder you choose. Audio stays as the files you imported; collections, comments and notes are small JSON and Markdown files next to them (the format). You can read it all without the app."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Can I sync with Dropbox, Google Drive or OneDrive instead of iCloud?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Yes. Put the library in any folder those services (or Syncthing, Nextcloud, a network drive) keep in sync. iCloud Drive is recommended because it needs nothing else installed."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Can I share songs with my band?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Share the library folder with them through iCloud Drive (or your sync service), and comments show up for everyone. Share links are on the roadmap."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Does it upload my music anywhere, or use it to train AI?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "No. There's no Unnamed server. Your music only goes where your sync service takes it. The one network feature, picking cover art from Unsplash, only sends your search words."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "How accurate is the key and BPM detection?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Measured on 254 full-band mixes of Apple Loops whose tempo and key are known: tempo is exactly right 78% of the time (another 10% are half or double time), and key 54% (another 19% are a fifth away or the relative major/minor). That's about what classic open-source detectors manage. One click fixes a wrong guess, and typed values always win."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Is there an iPhone app?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Not yet. Unnamed is a Mac app for now. An iPhone app that opens the same library folder is on the roadmap."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Why does macOS warn me when I first open it?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Apple only skips that warning for apps notarized with a paid developer account. Unnamed is free and open source, so you can read every line, or build it yourself."
+          }
+        }
+      ]
+    }
+  ]
+}
+</script>
+
+<style>
+:root {
+  color-scheme: dark;
+  --bg: #0e0c17;
+  --card: rgb(255 255 255 / .045);
+  --card-hi: rgb(255 255 255 / .08);
+  --line: rgb(255 255 255 / .09);
+  --line-hi: rgb(255 255 255 / .16);
+  --text: #efedf7;
+  --soft: #d6d2e4;
+  --muted: #aaa6bf;
+  --faint: #8c87a3;
+  --lilac: #b9a3ff;
+  --pink: #ff8fd1;
+  --sky: #82cfff;
+  --mint: #8af7c9;
+  --gold: #f3cd78;
+  --good: #7fe3ad;
+  --bad: #ff9a9a;
+  --iris: linear-gradient(100deg, #ff8fd1, #b9a3ff 34%, #82cfff 66%, #8af7c9);
+  --radius: 22px;
+  --gutter: clamp(16px, 4vw, 40px);
+  --max: 1160px;
+  --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  --marker: "Marker Felt", "Segoe Print", "Bradley Hand", cursive;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; scroll-padding-top: 84px; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 17px/1.6 var(--sans);
+  -webkit-font-smoothing: antialiased;
+}
+img, svg, video { max-width: 100%; }
+a { color: var(--lilac); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+a:hover { color: #d6caff; }
+:focus-visible { outline: 2px solid var(--lilac); outline-offset: 3px; border-radius: 6px; }
+h1, h2, h3 { font-family: var(--display); }
+code { font-family: var(--mono); font-size: .88em; }
+p code, li code { padding: 2px 6px; border-radius: 6px; background: var(--card-hi); }
+strong { font-weight: 650; }
+
+.visually-hidden {
+  position: absolute !important;
+  width: 1px; height: 1px;
+  margin: -1px; padding: 0; border: 0;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
+}
+.skip {
+  position: absolute; left: 12px; top: -80px; z-index: 100;
+  padding: 10px 16px; border-radius: 10px;
+  background: #fff; color: #14121e; font-weight: 600;
+}
+.skip:focus { top: 12px; }
+
+/* Buttons */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 10px;
+  padding: 14px 24px; border-radius: 999px;
+  font-weight: 650; font-size: 17px; line-height: 1.2; text-decoration: none;
+  transition: transform .15s ease, box-shadow .15s ease, background-color .15s ease;
+}
+.btn svg { width: 20px; height: 20px; flex: none; }
+.btn-primary { background: #fff; color: #14121e; box-shadow: 0 10px 34px -10px rgb(185 163 255 / .75); }
+.btn-primary:hover { color: #14121e; transform: translateY(-1px); box-shadow: 0 14px 44px -10px rgb(185 163 255 / .95); }
+.btn-ghost { background: rgb(255 255 255 / .06); color: var(--text); box-shadow: inset 0 0 0 1px var(--line-hi); }
+.btn-ghost:hover { color: var(--text); background: rgb(255 255 255 / .1); }
+.btn-small { padding: 9px 16px; font-size: 15px; }
+
+/* Navigation */
+.nav {
+  position: sticky; top: 0; z-index: 50;
+  background: rgb(14 12 23 / .72);
+  -webkit-backdrop-filter: saturate(160%) blur(18px);
+  backdrop-filter: saturate(160%) blur(18px);
+  border-bottom: 1px solid var(--line);
+}
+.nav-inner {
+  max-width: var(--max); margin: 0 auto;
+  display: flex; align-items: center; gap: 28px;
+  padding: 12px var(--gutter);
+}
+.brand { display: flex; align-items: center; gap: 10px; color: var(--text); font-weight: 700; font-size: 18px; text-decoration: none; }
+.brand:hover { color: var(--text); }
+.brand img { border-radius: 8px; }
+.nav-links { display: flex; gap: 24px; margin-left: auto; }
+.nav-links a { color: var(--muted); font-size: 15px; font-weight: 500; text-decoration: none; }
+.nav-links a:hover { color: var(--text); }
+@media (max-width: 760px) {
+  .nav-links { display: none; }
+  .nav-inner .btn { margin-left: auto; }
+}
+
+/* CDs, drawn like the app's: brushed metal, a clear hub and a rainbow sheen */
+.cd {
+  --size: 320px;
+  --metal: 222 225 233;
+  --edge: 140 146 162;
+  --hub: 196 200 211;
+  --data: radial-gradient(circle closest-side, transparent 35%, #000 41%, #000 95%, transparent 99%);
+  position: absolute;
+  width: var(--size);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  isolation: isolate;
+  background:
+    radial-gradient(circle closest-side, #0b0a12 0 11.5%, #2c2a38 11.8% 13.2%, transparent 13.5%),
+    radial-gradient(circle closest-side, transparent 0 13.4%, rgb(var(--hub)) 13.6% 29%, rgb(255 255 255 / .75) 29.4% 30.2%, rgb(var(--hub) / .6) 30.5% 35%, transparent 35.5%),
+    repeating-radial-gradient(circle closest-side, rgb(255 255 255 / .09) 0 .45%, transparent .9% 1.7%),
+    radial-gradient(circle closest-side, rgb(var(--metal)) 36%, rgb(var(--metal) / .88) 72%, rgb(var(--edge)) 97.4%, rgb(255 255 255 / .9) 98.5%, rgb(var(--edge)) 99.5%);
+  box-shadow: 0 calc(var(--size) * .08) calc(var(--size) * .22) rgb(0 0 0 / .55);
+}
+.cd::before, .cd::after {
+  content: "";
+  position: absolute; inset: 0;
+  border-radius: 50%;
+  -webkit-mask: var(--data);
+  mask: var(--data);
+  rotate: var(--pointer, 0deg);
+  animation: sheen 18s ease-in-out infinite alternate;
+  transition: rotate 1.2s cubic-bezier(.2, .7, .2, 1);
+}
+.cd::before {
+  background: conic-gradient(from 0deg,
+    transparent 0deg, rgb(255 120 220 / .4) 14deg, rgb(120 196 255 / .6) 24deg, rgb(110 255 200 / .75) 32deg, rgb(240 255 140 / .45) 43deg, transparent 58deg,
+    transparent 180deg, rgb(255 120 220 / .4) 194deg, rgb(120 196 255 / .6) 204deg, rgb(110 255 200 / .75) 212deg, rgb(240 255 140 / .45) 223deg, transparent 238deg);
+  filter: blur(calc(var(--size) * .022));
+  mix-blend-mode: screen;
+}
+.cd::after {
+  background: conic-gradient(from 96deg, transparent 0 6deg, rgb(255 255 255 / .42) 24deg, transparent 44deg 186deg, rgb(255 255 255 / .3) 204deg, transparent 224deg);
+  filter: blur(calc(var(--size) * .03));
+}
+.cd-face { position: absolute; inset: 0; border-radius: 50%; }
+.cd-label {
+  position: absolute; left: 50%; top: 50%;
+  transform: translate(-50%, -50%) rotate(var(--tilt, -12deg)) translateY(calc(var(--size) * -.31));
+  font: calc(var(--size) * .058)/1 var(--marker);
+  color: rgb(24 20 38 / .8);
+  white-space: nowrap;
+}
+.cd.blue { --metal: 158 186 238; --edge: 86 116 186; --hub: 184 202 238; }
+.cd.gold { --metal: 233 203 136; --edge: 166 126 58; --hub: 228 206 158; }
+.cd.rose { --metal: 238 168 222; --edge: 170 92 160; --hub: 236 200 228; }
+@keyframes sheen { from { transform: rotate(-22deg); } to { transform: rotate(30deg); } }
+@keyframes spin { to { rotate: 360deg; } }
+
+/* Hero */
+.hero { position: relative; overflow: hidden; isolation: isolate; padding: clamp(64px, 10vw, 120px) var(--gutter) 0; }
+.hero::before {
+  content: ""; position: absolute; z-index: -2; inset: 0;
+  background:
+    radial-gradient(40% 32% at 18% 18%, rgb(185 163 255 / .2), transparent 70%),
+    radial-gradient(34% 30% at 86% 22%, rgb(130 207 255 / .15), transparent 70%),
+    radial-gradient(40% 30% at 76% 62%, rgb(243 205 120 / .1), transparent 70%);
+}
+.discs { position: absolute; inset: 0; z-index: -1; pointer-events: none; }
+.discs .cd-face { animation: spin var(--spin, 80s) linear infinite; }
+.d1 { --size: clamp(250px, 30vw, 440px); left: calc(var(--size) * -.44); top: 70px; --spin: 70s; }
+.d2 { --size: clamp(190px, 21vw, 310px); right: calc(var(--size) * -.24); top: -50px; --spin: 95s; }
+.d3 { --size: clamp(270px, 32vw, 480px); right: calc(var(--size) * -.46); top: 420px; --spin: 120s; }
+.d4 { --size: clamp(150px, 16vw, 250px); left: 4vw; top: 560px; --spin: 60s; }
+.d5 { --size: clamp(100px, 9vw, 140px); left: 25vw; top: -70px; --spin: 50s; }
+.hero-copy { position: relative; max-width: 880px; margin: 0 auto; text-align: center; }
+.eyebrow {
+  display: inline-flex; align-items: center; gap: 10px;
+  margin: 0; padding: 7px 16px; border-radius: 999px;
+  background: rgb(255 255 255 / .05); box-shadow: inset 0 0 0 1px var(--line-hi);
+  color: var(--soft); font-size: 14px; font-weight: 600;
+}
+.eyebrow::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--mint); box-shadow: 0 0 12px var(--mint); }
+h1 { margin: 26px 0 0; line-height: 1; letter-spacing: -.04em; text-wrap: balance; }
+.wordmark {
+  display: block;
+  font-size: clamp(3.6rem, 11vw, 7.4rem); font-weight: 800;
+  background: var(--iris); -webkit-background-clip: text; background-clip: text; color: transparent;
+  padding-bottom: .06em;
+}
+.h1-sub { display: block; margin-top: 10px; font-size: clamp(1.7rem, 4vw, 3.1rem); font-weight: 750; line-height: 1.08; letter-spacing: -.032em; }
+.tagline { max-width: 640px; margin: 22px auto 0; color: var(--faint); font-size: 16px; font-style: italic; text-wrap: pretty; }
+.lede { max-width: 720px; margin: 22px auto 0; color: var(--muted); font-size: clamp(1.1rem, 1.9vw, 1.28rem); text-wrap: pretty; }
+.lede strong { color: var(--text); }
+.cta { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin-top: 34px; }
+.fine { margin: 16px 0 0; color: var(--faint); font-size: 14px; }
+.fine a { color: var(--soft); }
+
+/* Screenshots in a window */
+.window {
+  position: relative; overflow: hidden;
+  border-radius: 14px;
+  background: #1e1e1e;
+  box-shadow: 0 0 0 1px rgb(255 255 255 / .12), 0 50px 110px -35px rgb(0 0 0 / .85);
+}
+.window.light { background: #fff; }
+.titlebar { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 14px; background: #2a2a2c; border-bottom: 1px solid #000; }
+.window.light .titlebar { background: #ececee; border-bottom-color: #d9d9dd; }
+.titlebar i { width: 12px; height: 12px; border-radius: 50%; background: #ff5f57; }
+.titlebar i:nth-child(2) { background: #febc2e; }
+.titlebar i:nth-child(3) { background: #28c840; }
+.window img, .window video { display: block; width: 100%; height: auto; }
+.window .crop { aspect-ratio: var(--ratio); object-fit: cover; object-position: var(--focus, top); }
+.hero-shot { position: relative; max-width: 1100px; margin: clamp(56px, 8vw, 96px) auto 0; }
+.hero-shot::before {
+  content: ""; position: absolute; z-index: -1; inset: 8% 6% -4%;
+  background: var(--iris); filter: blur(90px); opacity: .28;
+}
+figure { margin: 0; }
+
+/* Sections */
+.section { padding: clamp(72px, 9vw, 120px) var(--gutter); }
+.wrap { max-width: var(--max); margin: 0 auto; }
+.kicker {
+  width: fit-content; margin: 0;
+  font-size: 13px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase;
+  background: var(--iris); -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+h2 { margin: 12px 0 18px; font-size: clamp(2.05rem, 4.6vw, 3.35rem); font-weight: 750; line-height: 1.06; letter-spacing: -.032em; text-wrap: balance; }
+.lead { max-width: 46em; margin: 0; color: var(--muted); font-size: clamp(1.08rem, 1.6vw, 1.22rem); text-wrap: pretty; }
+.lead strong { color: var(--text); }
+.center { text-align: center; }
+.center .kicker, .center .lead { margin-inline: auto; }
+
+/* Promises */
+.promises { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin: 56px 0 0; padding: 0; list-style: none; }
+.promises li { padding: 26px 24px; border-radius: var(--radius); background: var(--card); box-shadow: inset 0 0 0 1px var(--line); }
+.promises svg { width: 40px; height: 40px; padding: 9px; border-radius: 12px; background: rgb(185 163 255 / .14); color: var(--lilac); }
+.promises h3 { margin: 18px 0 8px; font-size: 19px; letter-spacing: -.01em; line-height: 1.25; }
+.promises p { margin: 0; color: var(--muted); font-size: 15.5px; }
+@media (max-width: 1000px) { .promises { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 560px) { .promises { grid-template-columns: 1fr; } }
+
+/* Features */
+.feature { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); align-items: center; gap: clamp(32px, 5vw, 76px); margin-top: clamp(72px, 9vw, 130px); }
+.feature:nth-of-type(even) { grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); }
+.feature:nth-of-type(even) .feature-copy { order: 2; }
+.feature h3 { margin: 0 0 14px; font-size: clamp(1.6rem, 2.7vw, 2.15rem); font-weight: 750; line-height: 1.12; letter-spacing: -.025em; }
+.feature-copy p { margin: 0 0 14px; color: var(--muted); font-size: 17.5px; }
+.feature-copy p strong { color: var(--text); }
+.tag { display: inline-block; margin-bottom: 14px; padding: 4px 11px; border-radius: 999px; background: rgb(255 255 255 / .06); box-shadow: inset 0 0 0 1px var(--line-hi); color: var(--soft); font-size: 13px; font-weight: 600; }
+@media (max-width: 860px) {
+  .feature, .feature:nth-of-type(even) { grid-template-columns: minmax(0, 1fr); }
+  .feature:nth-of-type(even) .feature-copy { order: 0; }
+}
+
+/* Illustrations standing in for screen recordings */
+.panel {
+  position: relative; overflow: hidden;
+  aspect-ratio: 16 / 10;
+  border-radius: var(--radius);
+  background: #15121f;
+  box-shadow: inset 0 0 0 1px var(--line-hi), 0 50px 110px -40px rgb(0 0 0 / .85);
+  container-type: inline-size;
+}
+.panel .wave { position: absolute; display: block; height: auto; }
+
+.art-comments { background: radial-gradient(110% 90% at 0% 0%, rgb(255 143 209 / .16), transparent 55%), radial-gradient(90% 90% at 100% 100%, rgb(130 207 255 / .12), transparent 60%), #17141f; }
+.np { position: absolute; left: 5%; right: 5%; top: 6%; display: flex; align-items: center; gap: 2.6cqw; }
+.np-disc {
+  width: 8.5cqw; aspect-ratio: 1; flex: none; border-radius: 50%;
+  background:
+    radial-gradient(circle closest-side, #17141f 0 15%, rgb(255 255 255 / .92) 16% 30%, transparent 31%),
+    conic-gradient(from 30deg, #e990e6, #c06fe8, #f59bd0, #ffb0e0, #e990e6);
+  box-shadow: 0 1cqw 3cqw rgb(0 0 0 / .45);
+  animation: spin 5s linear infinite;
+}
+.np b { display: block; font-size: 3.3cqw; line-height: 1.25; }
+.np span { font-size: 2.5cqw; color: var(--muted); }
+.np-time { margin-left: auto; font: 2.5cqw var(--mono); color: var(--muted); }
+.art-comments .wave { left: 5%; width: 90%; top: 52%; }
+.marker { position: absolute; top: 76%; left: calc(5% + var(--x) * .9); width: 1.7cqw; aspect-ratio: 1; border-radius: 50%; background: var(--c); box-shadow: 0 0 2cqw var(--c); translate: -50% 0; }
+.bubble {
+  position: absolute; left: calc(5% + var(--x) * .9); top: var(--y);
+  margin: 0; padding: 1.3cqw 2.1cqw;
+  border-radius: 2.2cqw;
+  background: #2b2638; box-shadow: inset 0 0 0 1px var(--line-hi), 0 2cqw 5cqw rgb(0 0 0 / .4);
+  font-size: 2.45cqw; line-height: 1.3; white-space: nowrap;
+  translate: calc(var(--anchor) * -1) 0;
+}
+.bubble::after { content: ""; position: absolute; left: var(--anchor); bottom: -.9cqw; width: 1.8cqw; height: 1.8cqw; background: #2b2638; rotate: 45deg; translate: -50% 0; box-shadow: 1px 1px 0 var(--line-hi); }
+.bubble time { margin-right: 1cqw; color: var(--c); font-family: var(--mono); font-weight: 700; }
+.typing { position: absolute; left: 5%; right: 5%; bottom: 5%; padding: 1.7cqw 2.4cqw; border-radius: 2.2cqw; background: rgb(0 0 0 / .32); box-shadow: inset 0 0 0 1px var(--line); color: var(--faint); font-size: 2.5cqw; }
+.caret { display: inline-block; width: .12em; height: 1.1em; margin-right: .5em; background: var(--lilac); vertical-align: -.2em; animation: blink 1.1s steps(2, start) infinite; }
+@keyframes blink { to { visibility: hidden; } }
+
+.art-key { background: radial-gradient(100% 80% at 100% 0%, rgb(185 163 255 / .2), transparent 60%), radial-gradient(80% 80% at 0% 100%, rgb(138 247 201 / .1), transparent 60%), #15121f; }
+.readouts { position: absolute; left: 6%; right: 6%; top: 8%; display: grid; grid-template-columns: 1fr 1fr; gap: 3cqw; }
+.readout { padding: 2.4cqw 3cqw 2.8cqw; border-radius: 3cqw; background: rgb(255 255 255 / .05); box-shadow: inset 0 0 0 1px var(--line); }
+.readout small { display: flex; align-items: center; gap: 1.2cqw; color: var(--muted); font-size: 2.2cqw; font-weight: 650; letter-spacing: .12em; text-transform: uppercase; }
+.readout b { font: 750 10.5cqw/1.05 var(--display); letter-spacing: -.045em; background: var(--iris); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.readout span { margin-left: 1.2cqw; color: var(--soft); font-size: 3.4cqw; font-weight: 600; }
+.beat { width: 1.5cqw; aspect-ratio: 1; border-radius: 50%; background: var(--mint); box-shadow: 0 0 1.6cqw var(--mint); animation: beat calc(60s / 128) ease-out infinite; }
+@keyframes beat { from { transform: scale(1.3); opacity: 1; } 70%, to { transform: scale(.7); opacity: .3; } }
+.art-key .wave { left: 6%; width: 88%; bottom: 18%; }
+.status { position: absolute; left: 6%; right: 6%; bottom: 6%; margin: 0; color: var(--muted); font-size: 2.3cqw; }
+
+.art-board svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.art-board .t { font: 600 15px var(--sans); fill: #f1eef8; }
+.art-board .s { font: 12px var(--mono); fill: #a9a4bf; }
+.art-board .note { font: 22px var(--marker); fill: var(--gold); }
+.pill { position: absolute; left: 50%; bottom: 6%; translate: -50% 0; display: flex; align-items: center; gap: 1.4cqw; padding: 1.5cqw 3cqw; border-radius: 99px; background: #fff; color: #14121e; font-size: 2.5cqw; font-weight: 700; box-shadow: 0 2cqw 5cqw rgb(0 0 0 / .45); white-space: nowrap; }
+.pill::before { content: ""; width: 1.6cqw; aspect-ratio: .87; background: currentColor; clip-path: polygon(0 0, 100% 50%, 0 100%); }
+
+.art-scratch { background: radial-gradient(60% 70% at 50% 50%, rgb(130 207 255 / .16), transparent 70%), #13111c; }
+.art-scratch .cd { --size: 42cqw; left: 50%; top: 50%; translate: -50% -50%; }
+.art-scratch .cd-face { animation: scratch 4.8s cubic-bezier(.45, 0, .25, 1) infinite; }
+.arrows { position: absolute; left: 50%; top: 50%; width: 56cqw; height: 56cqw; translate: -50% -50%; overflow: visible; color: var(--mint); }
+@keyframes scratch {
+  0% { rotate: 0deg; }
+  12% { rotate: -64deg; }
+  20% { rotate: -16deg; }
+  28% { rotate: -72deg; }
+  36% { rotate: -24deg; }
+  44% { rotate: -56deg; }
+  100% { rotate: 360deg; }
+}
+
+/* Every feature */
+.everything { margin-top: clamp(80px, 10vw, 140px); }
+.everything h3 { margin: 0 0 22px; font-size: clamp(1.4rem, 2.4vw, 1.8rem); letter-spacing: -.02em; }
+.grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 0; padding: 0; list-style: none; }
+.grid li { padding: 20px 22px; border-radius: 18px; background: var(--card); box-shadow: inset 0 0 0 1px var(--line); color: var(--muted); font-size: 15.5px; line-height: 1.55; }
+.grid li strong { display: block; margin-bottom: 4px; color: var(--text); font-size: 16.5px; }
+@media (max-width: 1000px) { .grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 600px) { .grid { grid-template-columns: 1fr; } }
+
+/* Comparison */
+.compare { background: linear-gradient(180deg, transparent, rgb(185 163 255 / .05) 30%, transparent); }
+.table-wrap { margin-top: 48px; overflow-x: auto; border-radius: var(--radius); background: var(--card); box-shadow: inset 0 0 0 1px var(--line); }
+table { width: 100%; border-collapse: collapse; font-size: 16px; }
+th, td { padding: 18px 24px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+thead th { color: var(--muted); font-size: 15px; font-weight: 650; }
+thead th:nth-child(2) { color: var(--text); }
+tbody th { width: 27%; color: var(--soft); font-weight: 600; }
+td { color: var(--muted); }
+td:nth-child(2) { background: rgb(185 163 255 / .07); color: var(--text); }
+tbody tr:last-child > * { border-bottom: 0; }
+.yes { color: var(--good); font-weight: 800; }
+.no { color: var(--bad); font-weight: 800; }
+.verdicts { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px; }
+.verdicts div { padding: 26px 28px; border-radius: var(--radius); background: var(--card); box-shadow: inset 0 0 0 1px var(--line); }
+.verdicts h3 { margin: 0 0 8px; font-size: 19px; }
+.verdicts p { margin: 0; color: var(--muted); }
+.footnote { margin: 22px 0 0; color: var(--faint); font-size: 14px; font-style: italic; }
+@media (max-width: 760px) {
+  .verdicts { grid-template-columns: 1fr; }
+  table { font-size: 14.5px; }
+  th, td { padding: 14px 12px; }
+  tbody th { width: 30%; }
+}
+
+/* Vibecoded */
+.vibe-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); align-items: start; gap: clamp(36px, 6vw, 80px); }
+.vibe-copy { position: relative; }
+.vibe-copy p:not(.kicker) { color: var(--muted); font-size: 18px; }
+.sticker {
+  display: grid; place-items: center;
+  width: 150px; aspect-ratio: 1; margin-top: 28px; padding: 16px;
+  border-radius: 50%;
+  background: var(--iris);
+  color: #17121f; text-align: center;
+  font: 850 19px/1.02 var(--display); letter-spacing: -.01em; text-transform: uppercase;
+  rotate: -12deg;
+  box-shadow: 0 22px 50px -14px rgb(255 143 209 / .6), inset 0 0 0 6px rgb(255 255 255 / .35);
+}
+.stack { display: grid; gap: 14px; margin: 0; padding: 0; list-style: none; }
+.stack li { padding: 24px 26px; border-radius: var(--radius); background: var(--card); box-shadow: inset 0 0 0 1px var(--line); color: var(--muted); }
+.stack strong { display: block; margin-bottom: 4px; color: var(--text); font-size: 18px; }
+@media (max-width: 860px) { .vibe-grid { grid-template-columns: minmax(0, 1fr); } }
+
+/* Install */
+.steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin: 48px 0 0; padding: 0; list-style: none; counter-reset: step; }
+.steps li { position: relative; padding: 26px 26px 28px; border-radius: var(--radius); background: var(--card); box-shadow: inset 0 0 0 1px var(--line); counter-increment: step; }
+.steps li::before {
+  content: counter(step);
+  display: grid; place-items: center;
+  width: 40px; height: 40px; margin-bottom: 18px; border-radius: 50%;
+  background: var(--iris); color: #17121f; font-weight: 800;
+}
+.steps h3 { margin: 0 0 8px; font-size: 19px; letter-spacing: -.01em; }
+.steps p { margin: 0; color: var(--muted); font-size: 16px; }
+.steps b { color: var(--text); font-weight: 600; }
+.terminal { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; margin-top: 16px; padding: 16px 20px; border-radius: 16px; background: #09080f; box-shadow: inset 0 0 0 1px var(--line); color: var(--muted); font-size: 15px; }
+.terminal code { color: var(--mint); overflow-wrap: anywhere; }
+.copy { margin-left: auto; padding: 6px 14px; border: 0; border-radius: 999px; background: rgb(255 255 255 / .08); color: var(--text); font: 600 14px var(--sans); cursor: pointer; }
+.copy:hover { background: rgb(255 255 255 / .14); }
+.requires { margin: 18px 0 0; color: var(--muted); font-size: 15.5px; }
+@media (max-width: 860px) { .steps { grid-template-columns: 1fr; } }
+
+/* FAQ */
+.faq { max-width: 840px; margin: 44px auto 0; border-top: 1px solid var(--line); }
+.faq details { border-bottom: 1px solid var(--line); }
+.faq summary { position: relative; padding: 22px 48px 22px 0; font-size: 18.5px; font-weight: 650; line-height: 1.35; list-style: none; cursor: pointer; }
+.faq summary::-webkit-details-marker { display: none; }
+.faq summary::after {
+  content: ""; position: absolute; right: 8px; top: 50%;
+  width: 10px; height: 10px;
+  border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted);
+  transform: translateY(-70%) rotate(45deg);
+  transition: transform .2s ease;
+}
+.faq details[open] summary::after { transform: translateY(-20%) rotate(225deg); }
+.faq summary:hover { color: #fff; }
+.faq details p { margin: -4px 0 24px; color: var(--muted); }
+
+/* Build and roadmap */
+.two { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: clamp(40px, 6vw, 88px); }
+.two h2 { font-size: clamp(1.8rem, 3.4vw, 2.5rem); }
+.two p:not(.kicker) { color: var(--muted); }
+pre { margin: 20px 0; padding: 18px 22px; overflow-x: auto; border-radius: 16px; background: #09080f; box-shadow: inset 0 0 0 1px var(--line); color: var(--soft); font: 14.5px/1.7 var(--mono); }
+pre code { font-size: inherit; }
+.roadmap { margin: 0; padding: 0; list-style: none; }
+.roadmap li { position: relative; padding: 14px 0 14px 30px; border-bottom: 1px solid var(--line); color: var(--soft); }
+.roadmap li::before { content: ""; position: absolute; left: 4px; top: 23px; width: 10px; height: 10px; border-radius: 50%; box-shadow: inset 0 0 0 2px var(--lilac); }
+@media (max-width: 860px) { .two { grid-template-columns: minmax(0, 1fr); } }
+
+/* Closing */
+.closing { position: relative; overflow: hidden; isolation: isolate; padding: clamp(100px, 13vw, 170px) var(--gutter) clamp(260px, 30vw, 380px); text-align: center; }
+.closing h2 { max-width: 760px; margin-inline: auto; }
+.closing .lead { margin-inline: auto; }
+.closing .cd { --size: clamp(420px, 60vw, 760px); left: 50%; bottom: calc(var(--size) * -.62); translate: -50% 0; z-index: -1; }
+.closing .cd-face { animation: spin 90s linear infinite; }
+
+footer { padding: 48px var(--gutter) 56px; border-top: 1px solid var(--line); color: var(--faint); font-size: 14.5px; }
+.foot { display: flex; flex-wrap: wrap; align-items: center; gap: 18px 32px; }
+.foot .brand { font-size: 16px; }
+.foot nav { display: flex; flex-wrap: wrap; gap: 10px 22px; margin-left: auto; }
+.foot nav a { color: var(--muted); text-decoration: none; }
+.foot nav a:hover { color: var(--text); }
+.legal { max-width: 70em; margin: 26px 0 0; }
+
+@media (max-width: 760px) {
+  body { font-size: 16.5px; }
+  .discs .cd { opacity: .55; }
+  .d1 { top: 26px; }
+  .d2 { top: -70px; }
+  .d3, .d4, .d5 { display: none; }
+  .cta .btn { flex: 1 1 100%; }
+  .feature-copy p { font-size: 16.5px; }
+}
+
+/* Set by the script while a part of the page is scrolled out of view. */
+.offscreen, .offscreen *, .offscreen *::before, .offscreen *::after { animation-play-state: paused !important; }
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+</style>
+</head>
+<body>
+<!--
+  Adding screenshots and screen recordings
+
+  Every place for media is marked "MEDIA:" below. Put the file in docs/images/
+  and swap it in:
+
+    A screenshot:
+      <img src="images/name.png" width="1600" height="1000" alt="What's on screen" loading="lazy" decoding="async">
+
+    A screen recording (an .mp4, ideally under 10 MB; QuickTime's Export As › 1080p is fine):
+      <video src="images/name.mp4" poster="images/name.jpg" width="1920" height="1080"
+             autoplay muted loop playsinline aria-label="What's on screen"></video>
+
+  Put either inside <div class="window">…</div> (keeping the title bar) for a
+  Mac window frame, or use it in place of a whole <div class="panel">. Describe
+  what's on screen in alt or aria-label: search engines read it.
+-->
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="nav">
+  <div class="nav-inner">
+    <a class="brand" href="./">
+      <img src="images/icon-64.png" width="30" height="30" alt="">
+      <span>Unnamed</span>
+    </a>
+    <nav class="nav-links" aria-label="Sections">
+      <a href="#features">Features</a>
+      <a href="#compare">Compare</a>
+      <a href="#vibecoded">Vibecoded?</a>
+      <a href="#faq">FAQ</a>
+      <a href="https://github.com/michdooley/Unnamed">GitHub</a>
+    </nav>
+    <a class="btn btn-primary btn-small" href="https://github.com/michdooley/Unnamed/releases/latest">Download</a>
+  </div>
+</header>
+
+<main id="main">
+
+<section class="hero" aria-labelledby="title">
+  <div class="discs" aria-hidden="true">
+    <div class="cd d1"><div class="cd-face"><span class="cd-label">late night chords v7</span></div></div>
+    <div class="cd blue d2"><div class="cd-face"></div></div>
+    <div class="cd gold d3"><div class="cd-face"><span class="cd-label" style="--tilt: 18deg">FINAL final (2).wav</span></div></div>
+    <div class="cd d4"><div class="cd-face"></div></div>
+    <div class="cd rose d5"><div class="cd-face"></div></div>
+  </div>
+
+  <div class="hero-copy">
+    <p class="eyebrow">Free · Open source · No subscription</p>
+    <h1 id="title">
+      <span class="wordmark">Unnamed</span><span class="visually-hidden">: </span>
+      <span class="h1-sub">the free, open-source music WIP tracker for Mac</span>
+    </h1>
+    <p class="tagline">A free alternative to [untitled] and other subscription apps for works in progress. Also: admittedly, completely, 100000% slopcode. Just absolute garbage code. But it's free so enjoy it i guess.</p>
+    <p class="lede"><strong>Every demo, voice memo, bounce and beat in one place.</strong> Keep every version, leave timestamped comments, find songs by key and BPM, and sync through your own iCloud Drive. No subscription, no servers, no lock-in.</p>
+    <div class="cta">
+      <a class="btn btn-primary" href="https://github.com/michdooley/Unnamed/releases/latest">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5M5 19.5h14"/></svg>
+        Download for Mac
+      </a>
+      <a class="btn btn-ghost" href="https://github.com/michdooley/Unnamed">
+        <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+        View on GitHub
+      </a>
+    </div>
+    <p class="fine">Free forever · macOS 15 or later · Apple silicon and Intel · <a href="#install">Install help</a></p>
+  </div>
+
+  <figure class="hero-shot">
+    <!--
+      MEDIA: the hero. A 20–40 second screen recording works best: drop a few
+      demos in, play one, scratch the disc, open a moodboard. Replace the <img>
+      below with a <video> (see the note at the top of <body>).
+    -->
+    <div class="window light">
+      <div class="titlebar" aria-hidden="true"><i></i><i></i><i></i></div>
+      <img class="crop" style="--ratio: 1600 / 700" src="images/collection.png" width="1600" height="1107" fetchpriority="high" alt="Unnamed on a Mac: a collection of song demos called Snippets, with its artwork, four tracks, comment counts and notes">
+    </div>
+  </figure>
+</section>
+
+<section class="section" id="why" aria-labelledby="why-title">
+  <div class="wrap">
+    <p class="kicker">Why Unnamed</p>
+    <h2 id="why-title">A home for unfinished music</h2>
+    <p class="lead">Songwriters, producers and bands make a lot of unfinished music: voice memos of a melody, bounces from the DAW, a rough mix to send the band, the “final” master that's actually version 7. <strong>Unnamed is a music work-in-progress (WIP) tracker</strong> that keeps all of it organized, playable and commented, on your Mac.</p>
+    <ul class="promises">
+      <li>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m8 7-5 5 5 5M16 7l5 5-5 5M13.5 4l-3 16"/></svg>
+        <h3>Free and open source</h3>
+        <p>MIT licensed. No account, no subscription, no ads, no tracking.</p>
+      </li>
+      <li>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7.5A2.5 2.5 0 0 1 5.5 5h3.6l2 2.2h7.4A2.5 2.5 0 0 1 21 9.7v7.8a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5z"/></svg>
+        <h3>Your files, your folder</h3>
+        <p>Your library is a plain folder of audio files and small text files. Open it in Finder, back it up, take it with you. Nothing depends on this project surviving.</p>
+      </li>
+      <li>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 19h10.5a4 4 0 0 0 .5-7.97A6 6 0 0 0 6.3 9.6 4.75 4.75 0 0 0 7 19z"/></svg>
+        <h3>Syncs through what you already have</h3>
+        <p>Keep the library in iCloud Drive (recommended) and it follows you to your other Macs. Dropbox, Google Drive, OneDrive, Syncthing and Nextcloud work too.</p>
+      </li>
+      <li>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 5 6v5.5c0 4.4 3 7.9 7 9.5 4-1.6 7-5.1 7-9.5V6z"/><path d="m9 12 2.2 2.2L15.5 10"/></svg>
+        <h3>Nothing trains on your music</h3>
+        <p>There's no server to upload to. Your music only goes where your sync service takes it.</p>
+      </li>
+    </ul>
+  </div>
+</section>
+
+<section class="section" id="features" aria-labelledby="features-title">
+  <div class="wrap">
+    <div class="center">
+      <p class="kicker">Features</p>
+      <h2 id="features-title">Everything your works in progress need</h2>
+      <p class="lead">Keep every bounce, comment on the exact second, find any song by key or tempo, and lay an album out like a storyboard. In a native Mac app that stays light on your battery.</p>
+    </div>
+
+    <article class="feature" id="version-history">
+      <div class="feature-copy">
+        <h3>Version history for every song</h3>
+        <p>Upload a new bounce and the old one is kept. Play any version, name it (“rough mix”, “with vocals”, “master v3”), make an older one current again, or export it.</p>
+        <p>Comments stay attached to the version they were made on, so feedback on v2 doesn't get mixed up with v3.</p>
+      </div>
+      <figure class="feature-media">
+        <!-- MEDIA: version history (a screenshot or a short clip of uploading a new version) -->
+        <div class="window">
+          <div class="titlebar" aria-hidden="true"><i></i><i></i><i></i></div>
+          <img src="images/versions.png" width="1400" height="990" loading="lazy" decoding="async" alt="Version history in Unnamed: three named versions of a song called late night chords, each with its own waveform, with the current version playing">
+        </div>
+      </figure>
+    </article>
+
+    <article class="feature" id="comments">
+      <div class="feature-copy">
+        <h3>A waveform player with timestamped comments</h3>
+        <p>A floating player with a scrubbable waveform, queue, shuffle and repeat. Media keys and Control Center work.</p>
+        <p><strong>Start typing while a song plays and your comment pins to that moment.</strong> Comments show as markers on the waveform; click one to jump there. Per-song <strong>notes</strong> hold lyrics, chords and to-dos.</p>
+      </div>
+      <figure class="feature-media">
+        <!-- MEDIA: comments (a clip of typing a comment while a song plays). Replace the whole <div class="panel"> below. -->
+        <div class="panel art-comments" role="img" aria-label="Illustration: a song's waveform with three timestamped comments pinned to moments in it">
+          <div class="np">
+            <div class="np-disc"></div>
+            <div><b>late night chords</b><span>v3 · extended</span></div>
+            <span class="np-time">0:34 / 1:04</span>
+          </div>
+          <p class="bubble" style="--x: 11%; --y: 23%; --anchor: 30%; --c: var(--pink)"><time>0:07</time>intro's too long?</p>
+          <p class="bubble" style="--x: 53%; --y: 37%; --anchor: 50%; --c: var(--gold)"><time>0:34</time>bring the drums in HERE</p>
+          <p class="bubble" style="--x: 86%; --y: 23%; --anchor: 60%; --c: var(--mint)"><time>0:55</time>this chord!!</p>
+          <svg class="wave" viewBox="0 0 600 90" aria-hidden="true">
+            <defs>
+              <linearGradient id="played" x1="0" x2="600" y1="0" y2="0" gradientUnits="userSpaceOnUse">
+                <stop offset=".53" stop-color="#fff"/>
+                <stop offset=".53" stop-color="#fff" stop-opacity=".32"/>
+              </linearGradient>
+            </defs>
+            <path d="M2.5 36.2V53.8M7.5 36.9V53.1M12.5 36.0V54.0M17.5 35.8V54.2M22.5 36.4V53.6M27.5 35.1V54.9M32.5 36.5V53.5M37.5 36.1V53.9M42.5 35.7V54.3M47.5 36.1V53.9M52.5 35.5V54.5M57.5 36.8V53.2M62.5 35.5V54.5M67.5 32.6V57.4M72.5 33.3V56.7M77.5 35.8V54.2M82.5 33.0V57.0M87.5 28.1V61.9M92.5 25.9V64.1M97.5 27.3V62.7M102.5 23.9V66.1M107.5 24.3V65.7M112.5 26.2V63.8M117.5 23.6V66.4M122.5 28.7V61.3M127.5 29.9V60.1M132.5 28.9V61.1M137.5 24.4V65.6M142.5 24.4V65.6M147.5 26.7V63.3M152.5 23.3V66.7M157.5 24.5V65.5M162.5 25.3V64.7M167.5 26.9V63.1M172.5 30.5V59.5M177.5 29.6V60.4M182.5 25.5V64.5M187.5 23.4V66.6M192.5 26.0V64.0M197.5 25.1V64.9M202.5 23.8V66.2M207.5 25.7V64.3M212.5 23.7V66.3M217.5 20.5V69.5M222.5 24.0V66.0M227.5 25.4V64.6M232.5 23.1V66.9M237.5 21.2V68.8M242.5 19.4V70.6M247.5 23.3V66.7M252.5 22.3V67.7M257.5 22.4V67.6M262.5 27.2V62.8M267.5 22.5V67.5M272.5 22.6V67.4M277.5 23.9V66.1M282.5 22.5V67.5M287.5 20.1V69.9M292.5 10.9V79.1M297.5 10.5V79.5M302.5 9.7V80.3M307.5 11.5V78.5M312.5 14.4V75.6M317.5 11.0V79.0M322.5 12.3V77.7M327.5 13.7V76.3M332.5 11.6V78.4M337.5 6.3V83.7M342.5 9.6V80.4M347.5 13.2V76.8M352.5 16.6V73.4M357.5 17.6V72.4M362.5 11.0V79.0M367.5 8.5V81.5M372.5 6.3V83.7M377.5 13.2V76.8M382.5 18.3V71.7M387.5 14.6V75.4M392.5 17.4V72.6M397.5 20.6V69.4M402.5 18.5V71.5M407.5 22.2V67.8M412.5 23.3V66.7M417.5 17.6V72.4M422.5 15.6V74.4M427.5 21.6V68.4M432.5 19.0V71.0M437.5 13.2V76.8M442.5 15.0V75.0M447.5 20.9V69.1M452.5 17.9V72.1M457.5 17.0V73.0M462.5 18.0V72.0M467.5 21.5V68.5M472.5 26.7V63.3M477.5 30.6V59.4M482.5 30.0V60.0M487.5 27.7V62.3M492.5 24.0V66.0M497.5 27.4V62.6M502.5 32.0V58.0M507.5 31.3V58.7M512.5 30.8V59.2M517.5 29.3V60.7M522.5 26.9V63.1M527.5 27.8V62.2M532.5 31.2V58.8M537.5 30.7V59.3M542.5 28.4V61.6M547.5 28.3V61.7M552.5 26.4V63.6M557.5 27.1V62.9M562.5 31.0V59.0M567.5 33.2V56.8M572.5 34.4V55.6M577.5 37.5V52.5M582.5 38.6V51.4M587.5 38.2V51.8M592.5 39.2V50.8M597.5 39.5V50.5" stroke="url(#played)" stroke-width="3" stroke-linecap="round"/>
+            <path d="M318 0V90" stroke="#ffd60a" stroke-width="3" stroke-linecap="round"/>
+          </svg>
+          <i class="marker" style="--x: 11%; --c: var(--pink)"></i>
+          <i class="marker" style="--x: 53%; --c: var(--gold)"></i>
+          <i class="marker" style="--x: 86%; --c: var(--mint)"></i>
+          <div class="typing"><span class="caret"></span>Type to comment at 0:34…</div>
+        </div>
+      </figure>
+    </article>
+
+    <article class="feature" id="key-and-bpm">
+      <div class="feature-copy">
+        <h3>Automatic key and BPM detection</h3>
+        <p>Drop in a song and Unnamed listens for its <strong>tempo and key</strong> in the background, so you can search for “128” or “F♯ minor”. Anything you type yourself always wins.</p>
+        <p>The detector is built in, runs on your Mac, and is measured against real recordings. <a href="#faq-accuracy">How accurate is it?</a></p>
+      </div>
+      <figure class="feature-media">
+        <!-- MEDIA: key and BPM (a screenshot of a track's details, or of searching for a key). Replace the whole <div class="panel"> below. -->
+        <div class="panel art-key" role="img" aria-label="Illustration: a song's waveform on a beat grid, with its detected tempo of 128 BPM and key of F sharp minor">
+          <div class="readouts">
+            <div class="readout"><small>Tempo <i class="beat"></i></small><b>128</b><span>BPM</span></div>
+            <div class="readout"><small>Key</small><b>F♯</b><span>minor</span></div>
+          </div>
+          <svg class="wave" viewBox="0 0 600 100" aria-hidden="true">
+            <path d="M42.5 0V100M82.5 0V100M122.5 0V100M202.5 0V100M242.5 0V100M282.5 0V100M362.5 0V100M402.5 0V100M442.5 0V100M522.5 0V100M562.5 0V100" stroke="#fff" stroke-opacity=".08" stroke-width="1"/>
+            <path d="M2.5 0V100M162.5 0V100M322.5 0V100M482.5 0V100" stroke="#b9a3ff" stroke-opacity=".45" stroke-width="1.2"/>
+            <path d="M2.5 11.2V88.8M7.5 19.3V80.7M12.5 23.1V76.9M17.5 29.8V70.2M22.5 22.6V77.4M27.5 35.1V64.9M32.5 35.0V65.0M37.5 35.3V64.7M42.5 7.9V92.1M47.5 22.8V77.2M52.5 26.9V73.1M57.5 31.7V68.3M62.5 22.0V78.0M67.5 35.7V64.3M72.5 33.2V66.8M77.5 34.1V65.9M82.5 9.2V90.8M87.5 18.9V81.1M92.5 27.7V72.3M97.5 32.0V68.0M102.5 25.7V74.3M107.5 35.1V64.9M112.5 36.0V64.0M117.5 37.4V62.6M122.5 11.0V89.0M127.5 20.2V79.8M132.5 23.6V76.4M137.5 29.5V70.5M142.5 23.1V76.9M147.5 33.2V66.8M152.5 35.2V64.8M157.5 36.5V63.5M162.5 5.9V94.1M167.5 16.0V84.0M172.5 23.6V76.4M177.5 28.5V71.5M182.5 24.7V75.3M187.5 34.7V65.3M192.5 36.6V63.4M197.5 34.8V65.2M202.5 11.7V88.3M207.5 17.1V82.9M212.5 26.4V73.6M217.5 27.3V72.7M222.5 26.0V74.0M227.5 35.0V65.0M232.5 33.5V66.5M237.5 35.9V64.1M242.5 6.0V94.0M247.5 20.5V79.5M252.5 28.2V71.8M257.5 28.9V71.1M262.5 24.4V75.6M267.5 35.5V64.5M272.5 35.6V64.4M277.5 34.1V65.9M282.5 8.2V91.8M287.5 22.6V77.4M292.5 27.2V72.8M297.5 31.6V68.4M302.5 21.4V78.6M307.5 35.2V64.8M312.5 34.8V65.2M317.5 35.9V64.1M322.5 13.7V86.3M327.5 18.0V82.0M332.5 27.9V72.1M337.5 28.9V71.1M342.5 23.6V76.4M347.5 35.0V65.0M352.5 35.9V64.1M357.5 34.1V65.9M362.5 7.7V92.3M367.5 21.2V78.8M372.5 23.4V76.6M377.5 31.1V68.9M382.5 21.1V78.9M387.5 33.3V66.7M392.5 36.5V63.5M397.5 34.0V66.0M402.5 13.5V86.5M407.5 21.5V78.5M412.5 24.0V76.0M417.5 30.5V69.5M422.5 25.6V74.4M427.5 35.5V64.5M432.5 34.7V65.3M437.5 36.7V63.3M442.5 9.7V90.3M447.5 20.7V79.3M452.5 26.0V74.0M457.5 27.3V72.7M462.5 22.7V77.3M467.5 32.4V67.6M472.5 36.2V63.8M477.5 37.0V63.0M482.5 6.7V93.3M487.5 17.3V82.7M492.5 27.2V72.8M497.5 31.2V68.8M502.5 20.6V79.4M507.5 35.1V64.9M512.5 33.3V66.7M517.5 34.4V65.6M522.5 9.7V90.3M527.5 20.3V79.7M532.5 28.1V71.9M537.5 31.9V68.1M542.5 24.6V75.4M547.5 33.1V66.9M552.5 35.9V64.1M557.5 34.6V65.4M562.5 9.8V90.2M567.5 21.3V78.7M572.5 27.6V72.4M577.5 28.5V71.5M582.5 24.7V75.3M587.5 33.6V66.4M592.5 33.7V66.3M597.5 35.3V64.7" stroke="#d9d4ea" stroke-width="3" stroke-linecap="round"/>
+          </svg>
+          <p class="status">Found in the background as the song was added. Typed values win.</p>
+        </div>
+      </figure>
+    </article>
+
+    <article class="feature" id="collections">
+      <div class="feature-copy">
+        <h3>Collections, folders and an archive</h3>
+        <p>Organize demos into <strong>collections</strong>: albums, EPs, mixtapes, beat packs, sets of sketches. A song can live in several collections at once.</p>
+        <p>File collections into <strong>folders</strong> as deep as you like. <strong>Archive</strong> anything to hide it without deleting it, and restore it to exactly where it was.</p>
+      </div>
+      <figure class="feature-media">
+        <!-- MEDIA: collections and folders -->
+        <div class="window">
+          <div class="titlebar" aria-hidden="true"><i></i><i></i><i></i></div>
+          <img class="crop" style="--ratio: 1000 / 540; --focus: left top" src="images/folder.png" width="1400" height="1050" loading="lazy" decoding="async" alt="A folder in Unnamed called 2026 Releases, holding a folder of demos and two collections with gradient artwork">
+        </div>
+      </figure>
+    </article>
+
+    <article class="feature" id="moodboards">
+      <div class="feature-copy">
+        <h3>Moodboards for concept albums</h3>
+        <p>Flip a collection into an infinite <strong>moodboard</strong>: lay songs out as glass threads, add pictures, videos, text and drawings.</p>
+        <p>Press <strong>Play Journey</strong> and the view travels along the threads as the music plays: a storyboard for your album.</p>
+      </div>
+      <figure class="feature-media">
+        <!-- MEDIA: moodboard (a Play Journey clip). Replace the whole <div class="panel"> below. -->
+        <div class="panel art-board" role="img" aria-label="Illustration: a moodboard with three songs laid out as glass threads, pictures, a handwritten note and a Play Journey button">
+          <svg viewBox="0 0 800 500" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+            <defs>
+              <pattern id="dots" width="22" height="22" patternUnits="userSpaceOnUse"><circle cx="11" cy="11" r="1.2" fill="#fff" fill-opacity=".13"/></pattern>
+              <linearGradient id="sunset" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffc3a0"/><stop offset=".55" stop-color="#ff7096"/><stop offset="1" stop-color="#5a3c9e"/></linearGradient>
+              <linearGradient id="sea" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#6ff0de"/><stop offset="1" stop-color="#3949a8"/></linearGradient>
+              <radialGradient id="bead" cx=".35" cy=".35" r=".75"><stop offset="0" stop-color="#fff"/><stop offset=".45" stop-color="#bdf3ff"/><stop offset="1" stop-color="#3fb6d0"/></radialGradient>
+            </defs>
+            <rect width="800" height="500" fill="url(#dots)"/>
+
+            <g transform="rotate(-7 165 360)">
+              <rect x="96" y="300" width="138" height="124" rx="6" fill="#f4f1ea"/>
+              <rect x="105" y="309" width="120" height="90" rx="3" fill="url(#sunset)"/>
+              <circle cx="165" cy="352" r="16" fill="#ffe2a8" fill-opacity=".9"/>
+              <path d="M105 380q30-14 60 0t60 0V399H105z" fill="#3a2a6e" fill-opacity=".75"/>
+            </g>
+            <g transform="rotate(5 640 372)">
+              <rect x="568" y="318" width="146" height="112" rx="6" fill="#f4f1ea"/>
+              <rect x="577" y="327" width="128" height="82" rx="3" fill="url(#sea)"/>
+              <path d="M577 380q32-12 64 0t64 0V409H577z" fill="#fff" fill-opacity=".22"/>
+            </g>
+            <text class="note" x="300" y="74" transform="rotate(-4 300 74)">side B starts here</text>
+            <path d="M486 66c30-8 52 0 70 22" fill="none" stroke="#f3cd78" stroke-width="2.5" stroke-linecap="round"/>
+            <path d="m546 76 11 13-16 3" fill="none" stroke="#f3cd78" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M286 382l9-25 9 25-23-15h28z" fill="none" stroke="#8af7c9" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+
+            <g fill="none" stroke-linecap="round">
+              <path d="M58 182C160 182 196 262 300 268" stroke="#f2a65a" stroke-opacity=".6" stroke-width="7"/>
+              <path d="M58 180.5C160 180.5 196 260.5 300 266.5" stroke="#fff" stroke-opacity=".65" stroke-width="1.6"/>
+              <path id="journey" d="M332 282C434 282 470 196 566 188" stroke="#4cc3d9" stroke-opacity=".6" stroke-width="7"/>
+              <path d="M332 280.5C434 280.5 470 194.5 566 186.5" stroke="#fff" stroke-opacity=".65" stroke-width="1.6"/>
+              <path d="M598 172C690 172 712 262 790 276" stroke="#ee7fc6" stroke-opacity=".6" stroke-width="7"/>
+              <path d="M598 170.5C690 170.5 712 260.5 790 274.5" stroke="#fff" stroke-opacity=".65" stroke-width="1.6"/>
+            </g>
+            <g fill="#fff" fill-opacity=".75"><rect x="60" y="164.4" width="3.4" height="11.6" rx="1.7"/><rect x="67" y="162.9" width="3.4" height="13.1" rx="1.7"/><rect x="74" y="165.5" width="3.4" height="10.5" rx="1.7"/><rect x="81" y="165.3" width="3.4" height="10.7" rx="1.7"/><rect x="88" y="163.7" width="3.4" height="12.3" rx="1.7"/><rect x="95" y="166.9" width="3.4" height="9.1" rx="1.7"/><rect x="102" y="166.6" width="3.4" height="9.4" rx="1.7"/><rect x="109" y="160.4" width="3.4" height="15.6" rx="1.7"/><rect x="116" y="166.3" width="3.4" height="9.7" rx="1.7"/><rect x="123" y="167.5" width="3.4" height="8.5" rx="1.7"/><rect x="130" y="161.0" width="3.4" height="15.0" rx="1.7"/><rect x="137" y="163.5" width="3.4" height="12.5" rx="1.7"/><rect x="144" y="158.6" width="3.4" height="17.4" rx="1.7"/><rect x="151" y="163.4" width="3.4" height="12.6" rx="1.7"/><rect x="158" y="163.6" width="3.4" height="12.4" rx="1.7"/><rect x="165" y="168.0" width="3.4" height="8.0" rx="1.7"/><rect x="172" y="163.6" width="3.4" height="12.4" rx="1.7"/><rect x="179" y="160.1" width="3.4" height="15.9" rx="1.7"/><rect x="334" y="260.7" width="3.4" height="15.3" rx="1.7"/><rect x="341" y="261.2" width="3.4" height="14.8" rx="1.7"/><rect x="348" y="262.5" width="3.4" height="13.5" rx="1.7"/><rect x="355" y="263.3" width="3.4" height="12.7" rx="1.7"/><rect x="362" y="262.9" width="3.4" height="13.1" rx="1.7"/><rect x="369" y="259.7" width="3.4" height="16.3" rx="1.7"/><rect x="376" y="266.5" width="3.4" height="9.5" rx="1.7"/><rect x="383" y="263.5" width="3.4" height="12.5" rx="1.7"/><rect x="390" y="261.4" width="3.4" height="14.6" rx="1.7"/><rect x="397" y="265.1" width="3.4" height="10.9" rx="1.7"/><rect x="404" y="261.7" width="3.4" height="14.3" rx="1.7"/><rect x="411" y="266.5" width="3.4" height="9.5" rx="1.7"/><rect x="418" y="262.2" width="3.4" height="13.8" rx="1.7"/><rect x="425" y="265.4" width="3.4" height="10.6" rx="1.7"/><rect x="432" y="264.3" width="3.4" height="11.7" rx="1.7"/><rect x="439" y="265.5" width="3.4" height="10.5" rx="1.7"/><rect x="446" y="268.1" width="3.4" height="7.9" rx="1.7"/><rect x="453" y="265.6" width="3.4" height="10.4" rx="1.7"/><rect x="600" y="152.2" width="3.4" height="13.8" rx="1.7"/><rect x="607" y="154.3" width="3.4" height="11.7" rx="1.7"/><rect x="614" y="157.2" width="3.4" height="8.8" rx="1.7"/><rect x="621" y="153.8" width="3.4" height="12.2" rx="1.7"/><rect x="628" y="158.1" width="3.4" height="7.9" rx="1.7"/><rect x="635" y="153.2" width="3.4" height="12.8" rx="1.7"/><rect x="642" y="148.0" width="3.4" height="18.0" rx="1.7"/><rect x="649" y="156.8" width="3.4" height="9.2" rx="1.7"/><rect x="656" y="154.2" width="3.4" height="11.8" rx="1.7"/><rect x="663" y="155.2" width="3.4" height="10.8" rx="1.7"/><rect x="670" y="157.9" width="3.4" height="8.1" rx="1.7"/><rect x="677" y="154.2" width="3.4" height="11.8" rx="1.7"/><rect x="684" y="149.9" width="3.4" height="16.1" rx="1.7"/><rect x="691" y="153.6" width="3.4" height="12.4" rx="1.7"/><rect x="698" y="153.0" width="3.4" height="13.0" rx="1.7"/><rect x="705" y="157.9" width="3.4" height="8.1" rx="1.7"/><rect x="712" y="156.4" width="3.4" height="9.6" rx="1.7"/><rect x="719" y="156.5" width="3.4" height="9.5" rx="1.7"/></g>
+
+            <g transform="translate(48 96)">
+              <rect width="186" height="50" rx="14" fill="#fff" fill-opacity=".08" stroke="#fff" stroke-opacity=".18"/>
+              <circle cx="25" cy="25" r="15" fill="#f2a65a"/><circle cx="25" cy="25" r="4.5" fill="#15121f"/>
+              <text class="t" x="48" y="22">late night chords</text><text class="s" x="48" y="39">1:04</text>
+            </g>
+            <g transform="translate(322 196)">
+              <rect width="174" height="50" rx="14" fill="#fff" fill-opacity=".08" stroke="#fff" stroke-opacity=".18"/>
+              <circle cx="25" cy="25" r="15" fill="#4cc3d9"/><circle cx="25" cy="25" r="4.5" fill="#15121f"/>
+              <text class="t" x="48" y="22">bounce idea 2</text><text class="s" x="48" y="39">0:34</text>
+            </g>
+            <g transform="translate(588 86)">
+              <rect width="186" height="50" rx="14" fill="#fff" fill-opacity=".08" stroke="#fff" stroke-opacity=".18"/>
+              <circle cx="25" cy="25" r="15" fill="#ee7fc6"/><circle cx="25" cy="25" r="4.5" fill="#15121f"/>
+              <text class="t" x="48" y="22">drum sketch 120</text><text class="s" x="48" y="39">0:29</text>
+            </g>
+
+            <g>
+              <circle r="20" fill="#7fe0f2" fill-opacity=".22"/>
+              <circle r="9" fill="url(#bead)"/>
+              <animateMotion dur="6s" repeatCount="indefinite" path="M332 282C434 282 470 196 566 188"/>
+            </g>
+          </svg>
+          <span class="pill">Play Journey</span>
+        </div>
+      </figure>
+    </article>
+
+    <article class="feature" id="scratching">
+      <div class="feature-copy">
+        <span class="tag">Yes, really</span>
+        <h3>DJ scratching</h3>
+        <p>Grab the spinning CD, or drag along the waveform, and the music follows your hand, backwards and all. Let go and it spins back up in time.</p>
+      </div>
+      <figure class="feature-media">
+        <!-- MEDIA: scratching (a clip with sound off still shows the disc moving). Replace the whole <div class="panel"> below. -->
+        <div class="panel art-scratch" role="img" aria-label="Illustration: a CD being scratched back and forth">
+          <svg class="arrows" viewBox="0 0 100 100" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M8.65 34.95A44 44 0 0 1 34.95 8.65"/>
+            <path d="m4.6 30.4 4 4.6 4.9-3.6M30.4 4.6l4.6 4 -3.6 4.9"/>
+            <path d="M91.35 65.05A44 44 0 0 1 65.05 91.35"/>
+            <path d="m95.4 69.6-4-4.6-4.9 3.6M69.6 95.4l-4.6-4 3.6-4.9"/>
+          </svg>
+          <div class="cd"><div class="cd-face"><span class="cd-label">bounce idea 2</span></div></div>
+        </div>
+      </figure>
+    </article>
+
+    <article class="feature" id="made-for-mac">
+      <div class="feature-copy">
+        <h3>Made for macOS</h3>
+        <p>SwiftUI and <strong>Liquid Glass</strong> on macOS 26, with album colours flowing into the window. Spinning CDs drawn by a Metal shader.</p>
+        <p>Import WAV, MP3, AIFF, M4A/AAC, FLAC, CAF and anything else macOS plays. Drag songs straight into Finder or your DAW. A <strong>Low Power Mode</strong> keeps it light on battery.</p>
+      </div>
+      <figure class="feature-media">
+        <!-- MEDIA: the welcome screen (a clip shows the CDs' sheen following the mouse) -->
+        <div class="window">
+          <img src="images/welcome.jpg" width="1400" height="812" loading="lazy" decoding="async" alt="Unnamed's welcome screen: CDs drawn by a Metal shader spin around a card that offers to create a library in iCloud Drive">
+        </div>
+      </figure>
+    </article>
+
+    <div class="everything">
+      <h3>The full feature list</h3>
+      <ul class="grid">
+        <li><strong>Import anything</strong>WAV, MP3, AIFF, M4A/AAC, FLAC, CAF, or anything else macOS can play. Use Add Tracks, drag in files or whole folders, drop them on the Dock icon, or use Open With.</li>
+        <li><strong>Collections</strong>Albums, EPs, mixtapes, sets of sketches. A track can be in several. Reorder by dragging, and move or duplicate tracks between collections.</li>
+        <li><strong>Folders</strong>For organizing collections, nested as deep as you like. Drag things into folders in the sidebar or on a folder's page.</li>
+        <li><strong>Version history</strong>Keep every version of a track. Play any of them, name them, make one current again, or export it.</li>
+        <li><strong>Artwork</strong>Upload an image, drop one on the cover, or pick a photo from Unsplash (the photographer is credited). Tracks without art take on their collection's look.</li>
+        <li><strong>Waveform player</strong>Scrubbable waveform, shuffle, repeat (all or one), volume and an up-next queue. Media keys and Control Center work too.</li>
+        <li><strong>Timestamped comments</strong>Pinned to a moment and a version, shown as markers on the waveform. Click one to jump there.</li>
+        <li><strong>Notes</strong>Per track, for lyrics, chords and to-dos.</li>
+        <li><strong>Key and BPM detection</strong>Worked out when a song or new version is added. ½× and 2× fix half or double time, and File › Find Missing Keys and Tempos fills in older tracks.</li>
+        <li><strong>Moodboards</strong>An infinite dot-grid canvas per collection. Songs become glass threads; add pictures and videos (compressed to HEIC and HEVC), text and drawings.</li>
+        <li><strong>Scratching</strong>Grab the disc in the player, or the record behind a collection's cover, or drag along the waveform.</li>
+        <li><strong>Archive</strong>Tracks, collections and folders go out of sight without being deleted, and come back to exactly where they were.</li>
+        <li><strong>Search</strong>Across titles, file names, notes, comments, key and BPM.</li>
+        <li><strong>Sync</strong>Through iCloud Drive, or any folder Dropbox, Google Drive, OneDrive, Box, Syncthing or Nextcloud keeps. Songs still in the cloud download when played.</li>
+        <li><strong>Export</strong>A track, any version, or a whole collection as numbered files. Or drag a track straight into Finder or your DAW.</li>
+        <li><strong>Liquid Glass</strong>On macOS 26 (Settings › Appearance): a glass player and buttons, artwork colours in the window, and a “+” that melts out of the player.</li>
+        <li><strong>A Metal welcome screen</strong>Slowly spinning CDs drawn per pixel with a small diffraction model, whose rainbow sheen follows your mouse.</li>
+        <li><strong>Light on the CPU</strong>Animations run in Core Animation, so playing music costs a few percent of one core. Low Power Mode tones things down further.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="section compare" id="compare" aria-labelledby="compare-title">
+  <div class="wrap">
+    <p class="kicker">Unnamed vs. [untitled]</p>
+    <h2 id="compare-title">A free, open-source alternative to [untitled]</h2>
+    <p class="lead">Apps like [untitled] do this beautifully, but your music lives on their servers, and more storage and the pro tools need a monthly membership. Unnamed is the opposite deal: free, open source, and your music stays in a folder you own.</p>
+    <div class="table-wrap">
+      <table>
+        <caption class="visually-hidden">Unnamed compared with [untitled]</caption>
+        <thead>
+          <tr><th scope="col"><span class="visually-hidden">Feature</span></th><th scope="col">Unnamed</th><th scope="col">[untitled]</th></tr>
+        </thead>
+        <tbody>
+          <tr><th scope="row">Price</th><td><strong>Free, forever</strong></td><td>Free tier; membership $7.99/month or $49.99/year</td></tr>
+          <tr><th scope="row">Where your music lives</th><td>A folder you own: iCloud Drive, Dropbox, any synced folder</td><td>Their cloud (with an offline mode)</td></tr>
+          <tr><th scope="row">Source code</th><td>Open (MIT)</td><td>Closed</td></tr>
+          <tr><th scope="row">Comments</th><td><span class="yes" aria-hidden="true">✓</span><span class="visually-hidden">Yes:</span> Timestamped, per version</td><td><span class="yes" aria-hidden="true">✓</span><span class="visually-hidden">Yes:</span> On projects and tracks</td></tr>
+          <tr><th scope="row">Apps</th><td>Mac</td><td>iPhone, desktop and web</td></tr>
+          <tr><th scope="row">Share links</th><td>Not yet</td><td><span class="yes" aria-hidden="true">✓</span><span class="visually-hidden">Yes:</span> With access controls</td></tr>
+          <tr><th scope="row">Stem splitting, pitch and speed</th><td><span class="no" aria-hidden="true">✗</span><span class="visually-hidden">No</span></td><td><span class="yes" aria-hidden="true">✓</span><span class="visually-hidden">Yes:</span> With a membership</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="verdicts">
+      <div>
+        <h3>What Unnamed adds</h3>
+        <p>Named version history for every song, automatic key and BPM detection, notes, moodboards with Play Journey, DJ scratching, and a library of plain files you can open without the app, synced by whatever service you already use.</p>
+      </div>
+      <div>
+        <h3>Honest take</h3>
+        <p>[untitled] is a great product with a team behind it, apps for iPhone, desktop and the web, and share links for sending music to collaborators. If those matter most to you, use it. Unnamed is for people who'd rather own their files, not pay monthly, and don't mind an app that's young and a little weird.</p>
+      </div>
+    </div>
+    <p class="footnote">[untitled] details are from its App Store listing as of October 2026. Prices and features change; check their site for the current details.</p>
+  </div>
+</section>
+
+<section class="section" id="vibecoded" aria-labelledby="vibe-title">
+  <div class="wrap vibe-grid">
+    <div class="vibe-copy">
+      <p class="kicker">Full disclosure</p>
+      <h2 id="vibe-title">Yes, it's 1000% vibecoded</h2>
+      <p>No human wrote the code. Every line of Swift, the Metal shaders, the tests and most of this page were written by an AI (<a href="https://claude.com/claude-code">Claude Code</a>), directed by a musician who knew what the app should feel like, tried every build, and sent it back until it did.</p>
+      <div class="sticker" aria-hidden="true">1000% vibe&shy;coded</div>
+    </div>
+    <ul class="stack">
+      <li><strong>It's tested by machines, not a QA team.</strong>More than 100 automated tests cover the library format, sync, playback, scratching and key and BPM detection, but expect rough edges.</li>
+      <li><strong>Your data is safe by design.</strong>Your library is plain files in a folder you choose, so no bug can lock you out. Back it up like any folder.</li>
+      <li><strong>Contributions are welcome, vibecoded or not.</strong>Open an <a href="https://github.com/michdooley/Unnamed/issues">issue</a> or a <a href="https://github.com/michdooley/Unnamed/pulls">pull request</a>.</li>
+    </ul>
+  </div>
+</section>
+
+<section class="section" id="install" aria-labelledby="install-title">
+  <div class="wrap">
+    <p class="kicker">Get it</p>
+    <h2 id="install-title">Download and install</h2>
+    <p class="lead">Unnamed is free and isn't notarized by Apple (that needs a paid developer account), so macOS asks you to allow it once.</p>
+    <ol class="steps">
+      <li>
+        <h3>Download</h3>
+        <p>Get <a href="https://github.com/michdooley/Unnamed/releases/latest">the latest Unnamed .dmg</a>, open it, and drag <b>Unnamed</b> into <b>Applications</b>.</p>
+      </li>
+      <li>
+        <h3>Open it, then click Done</h3>
+        <p>macOS says it can't check the app for malicious software. Click <b>Done</b>.</p>
+      </li>
+      <li>
+        <h3>Allow it once</h3>
+        <p>Open <b>System Settings › Privacy &amp; Security</b>, scroll down to “Unnamed was blocked…”, click <b>Open Anyway</b>, and confirm. Once per download.</p>
+      </li>
+    </ol>
+    <div class="terminal">
+      <span>Prefer Terminal?</span>
+      <code data-copy>xattr -dr com.apple.quarantine /Applications/Unnamed.app</code>
+    </div>
+    <p class="requires">Requires <strong>macOS 15 Sequoia or later</strong>, on Apple silicon or Intel. Liquid Glass needs macOS 26. When you install a new version, the app may ask you to point it at your library folder again the first time.</p>
+  </div>
+</section>
+
+<section class="section" id="faq" aria-labelledby="faq-title">
+  <div class="wrap">
+    <div class="center">
+      <p class="kicker">FAQ</p>
+      <h2 id="faq-title">Questions, answered</h2>
+    </div>
+    <div class="faq">
+      <details id="faq-free">
+        <summary>Is Unnamed really free?</summary>
+        <p>Yes. It's open source under the MIT license, with no account, subscription, ads or tracking.</p>
+      </details>
+      <details id="faq-alternative">
+        <summary>Is it a good [untitled] alternative?</summary>
+        <p>For organizing, versioning, commenting on and listening to works in progress on a Mac, yes. It doesn't have an iPhone app or share links yet.</p>
+      </details>
+      <details id="faq-storage">
+        <summary>Where is my music stored?</summary>
+        <p>In a folder you choose. Audio stays as the files you imported; collections, comments and notes are small JSON and Markdown files next to them (<a href="https://github.com/michdooley/Unnamed/blob/main/docs/LIBRARY_FORMAT.md">the format</a>). You can read it all without the app.</p>
+      </details>
+      <details id="faq-sync">
+        <summary>Can I sync with Dropbox, Google Drive or OneDrive instead of iCloud?</summary>
+        <p>Yes. Put the library in any folder those services (or Syncthing, Nextcloud, a network drive) keep in sync. iCloud Drive is recommended because it needs nothing else installed.</p>
+      </details>
+      <details id="faq-band">
+        <summary>Can I share songs with my band?</summary>
+        <p>Share the library folder with them through iCloud Drive (or your sync service), and comments show up for everyone. Share links are on the roadmap.</p>
+      </details>
+      <details id="faq-privacy">
+        <summary>Does it upload my music anywhere, or use it to train AI?</summary>
+        <p>No. There's no Unnamed server. Your music only goes where your sync service takes it. The one network feature, picking cover art from Unsplash, only sends your search words.</p>
+      </details>
+      <details id="faq-accuracy">
+        <summary>How accurate is the key and BPM detection?</summary>
+        <p>Measured on 254 full-band mixes of Apple Loops whose tempo and key are known: tempo is exactly right 78% of the time (another 10% are half or double time), and key 54% (another 19% are a fifth away or the relative major/minor). That's about what classic open-source detectors manage. One click fixes a wrong guess, and typed values always win.</p>
+      </details>
+      <details id="faq-iphone">
+        <summary>Is there an iPhone app?</summary>
+        <p>Not yet. Unnamed is a Mac app for now. An iPhone app that opens the same library folder is on the roadmap.</p>
+      </details>
+      <details id="faq-warning">
+        <summary>Why does macOS warn me when I first open it?</summary>
+        <p>Apple only skips that warning for apps notarized with a paid developer account. Unnamed is free and open source, so you can <a href="https://github.com/michdooley/Unnamed">read every line</a>, or <a href="#build">build it yourself</a>.</p>
+      </details>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="build" aria-labelledby="build-title">
+  <div class="wrap two">
+    <div>
+      <p class="kicker">For developers</p>
+      <h2 id="build-title">Build it yourself</h2>
+      <p>You need macOS 15 or later and Xcode 26 (Liquid Glass uses the macOS 26 SDK). Out of the box the app is signed to run locally, with no Apple account needed.</p>
+      <pre><code>git clone https://github.com/michdooley/Unnamed.git
+cd Unnamed
+open Unnamed.xcodeproj</code></pre>
+      <p>Press Run, then choose <strong>Create Library in iCloud Drive…</strong>. Signing with your own team, Unsplash, release builds and the test suite are covered in the <a href="https://github.com/michdooley/Unnamed#build-it-yourself">README</a>. The library format is documented in <a href="https://github.com/michdooley/Unnamed/blob/main/docs/LIBRARY_FORMAT.md">LIBRARY_FORMAT.md</a>.</p>
+    </div>
+    <div id="roadmap">
+      <p class="kicker">Next</p>
+      <h2>Roadmap</h2>
+      <ul class="roadmap">
+        <li>An iPhone app that opens the same library folder</li>
+        <li>Recording straight into the app</li>
+        <li>Sharing a collection by link</li>
+        <li>Built-in sync to WebDAV (Nextcloud, NAS) and S3-compatible storage, no desktop sync app needed</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="closing" aria-labelledby="closing-title">
+  <div class="cd" aria-hidden="true"><div class="cd-face"><span class="cd-label">demo 14 (no name yet)</span></div></div>
+  <h2 id="closing-title">Give your unfinished songs a home</h2>
+  <p class="lead">Free, open source and yours to keep. Slopcode and all.</p>
+  <div class="cta">
+    <a class="btn btn-primary" href="https://github.com/michdooley/Unnamed/releases/latest">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5M5 19.5h14"/></svg>
+      Download for Mac
+    </a>
+    <a class="btn btn-ghost" href="https://github.com/michdooley/Unnamed">Star it on GitHub</a>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="foot">
+      <a class="brand" href="./"><img src="images/icon-64.png" width="26" height="26" alt=""><span>Unnamed</span></a>
+      <nav aria-label="More">
+        <a href="https://github.com/michdooley/Unnamed">GitHub</a>
+        <a href="https://github.com/michdooley/Unnamed/releases">Releases</a>
+        <a href="https://github.com/michdooley/Unnamed/blob/main/docs/LIBRARY_FORMAT.md">Library format</a>
+        <a href="https://github.com/michdooley/Unnamed/issues">Report a bug</a>
+        <a href="https://github.com/michdooley/Unnamed/blob/main/LICENSE">MIT License</a>
+      </nav>
+    </div>
+    <p class="legal">Unnamed is an independent project. It isn't affiliated with or endorsed by [untitled] or untitled.stream. Product names belong to their owners. Apple, Mac, macOS and iCloud are trademarks of Apple Inc.</p>
+  </div>
+</footer>
+
+<script>
+(() => {
+  const still = matchMedia('(prefers-reduced-motion: reduce)');
+
+  // Like the app's welcome screen: each CD's rainbow turns toward the pointer.
+  const discs = [...document.querySelectorAll('.discs .cd, .closing .cd')];
+  const turns = new WeakMap();
+  let pointer = null;
+  let queued = false;
+  addEventListener('pointermove', (event) => {
+    if (still.matches || event.pointerType !== 'mouse') return;
+    pointer = event;
+    if (queued) return;
+    queued = true;
+    requestAnimationFrame(() => {
+      queued = false;
+      for (const disc of discs) {
+        const box = disc.getBoundingClientRect();
+        if (box.bottom < 0 || box.top > innerHeight) continue;
+        const toward = Math.atan2(pointer.clientY - box.top - box.height / 2, pointer.clientX - box.left - box.width / 2) * 180 / Math.PI + 60;
+        const turn = turns.get(disc) ?? 0;
+        // The sheen repeats every half turn, so go the short way round.
+        const next = turn + ((((toward - turn) % 180) + 270) % 180 - 90);
+        turns.set(disc, next);
+        disc.style.setProperty('--pointer', `${next}deg`);
+      }
+    });
+  }, { passive: true });
+
+  // Animations only run while they're in view, and not at all for people who
+  // prefer less motion (recordings added later then wait to be played).
+  const settle = () => {
+    for (const video of document.querySelectorAll('video[autoplay]')) {
+      if (still.matches) { video.pause(); video.controls = true; }
+    }
+    for (const svg of document.querySelectorAll('svg')) {
+      if (still.matches || svg.closest('.offscreen')) svg.pauseAnimations?.(); else svg.unpauseAnimations?.();
+    }
+  };
+  const watch = new IntersectionObserver((entries) => {
+    for (const { target, isIntersecting } of entries) target.classList.toggle('offscreen', !isIntersecting);
+    settle();
+  });
+  for (const part of document.querySelectorAll('.hero, .panel, .closing')) watch.observe(part);
+  settle();
+  still.addEventListener?.('change', settle);
+
+  // A link to a question opens it.
+  const openLinked = () => {
+    const target = location.hash && document.getElementById(decodeURIComponent(location.hash.slice(1)));
+    if (target instanceof HTMLDetailsElement) target.open = true;
+  };
+  addEventListener('hashchange', openLinked);
+  openLinked();
+
+  for (const code of document.querySelectorAll('[data-copy]')) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'copy';
+    button.textContent = 'Copy';
+    button.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(code.textContent.trim());
+        button.textContent = 'Copied';
+      } catch {
+        getSelection().selectAllChildren(code);
+        button.textContent = 'Press ⌘C';
+      }
+      setTimeout(() => { button.textContent = 'Copy'; }, 1800);
+    });
+    code.after(button);
+  }
+})();
+</script>
+</body>
+</html>
