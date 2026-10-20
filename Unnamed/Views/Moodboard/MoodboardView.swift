@@ -9,6 +9,7 @@ struct MoodboardView: View {
     @Environment(AppModel.self) private var app
     @Environment(PlayerController.self) private var player
     @Environment(\.liquidGlass) private var glass
+    @Environment(\.lowPower) private var lowPower
     let store: LibraryStore
     let collectionID: UUID
 
@@ -27,7 +28,9 @@ struct MoodboardView: View {
         ZStack(alignment: .topLeading) {
             // Everything that moves with the camera and the music lives in the
             // stage, so a frame only updates the stage, not the tray and toolbar.
-            BoardStage(model: model, store: store, collectionID: collectionID, glass: glass)
+            // Low Power Mode draws the threads and cards without glass.
+            BoardStage(model: model, store: store, collectionID: collectionID, glass: glass && !lowPower)
+                .environment(\.liquidGlass, glass && !lowPower)
             interactionLayer
             if let id = model.editingText {
                 BoardTextEditor(model: model, id: id)
@@ -47,7 +50,7 @@ struct MoodboardView: View {
             }
         }
         .background {
-            FrameDriver(active: model.needsFrames, fast: model.cameraMoving) { model.step($0) }
+            FrameDriver(active: model.needsFrames, pace: lowPower ? .gentle : model.cameraMoving ? .smooth : .steady) { model.step($0) }
         }
         .clipped()
         .ignoresSafeArea()
@@ -188,7 +191,10 @@ private struct BoardStage: View {
     }()
 
     var body: some View {
-        let bead = model.bead()
+        let _ = Perf.count("board")
+        // Drawn again whenever the model has a new frame to show.
+        let _ = model.frameTime
+        let bead = model.shownBead()
         let threads = model.renderThreads(bead: bead)
         let width = model.threadScreenWidth
         let dark = model.isDark
@@ -297,7 +303,7 @@ private struct BoardStage: View {
                         dark: dark
                     )
                     .opacity(model.emphasis(of: item, bead: bead) * min(revealed, model.unspool(item.id)))
-                    .position(x: box.midX, y: box.midY)
+                    .offset(x: box.minX, y: box.minY)
                 }
             }
         }

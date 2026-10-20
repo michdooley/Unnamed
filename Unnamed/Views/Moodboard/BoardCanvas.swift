@@ -233,7 +233,9 @@ struct InkLayer: View {
         let drawings = model.items.filter { $0.kind == .drawing && model.rect($0).intersects(model.visibleRect) }
         let stroke = model.stroke
         let camera = model.camera
-        let bead = model.bead()
+        // New frames move the playhead, and with it which drawings stand out.
+        let _ = model.frameTime
+        let bead = model.shownBead()
         let pen = model.penColor
         let liveWidth = max(1.5, min(40, 4 / camera.zoom))
         let emphasis = drawings.map { model.emphasis(of: $0, bead: bead) }

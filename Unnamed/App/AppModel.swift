@@ -114,6 +114,27 @@ final class AppModel {
     var liquidGlass: Bool {
         didSet { UserDefaults.standard.set(liquidGlass, forKey: "appearance.liquidGlass") }
     }
+    /// When to tone things down to save energy (see `lowPower`).
+    var lowPowerSetting: LowPowerSetting {
+        didSet {
+            UserDefaults.standard.set(lowPowerSetting.rawValue, forKey: "performance.lowPower")
+            player.lowPower = lowPower
+        }
+    }
+    /// The Mac is in Low Power Mode.
+    private(set) var systemLowPower = ProcessInfo.processInfo.isLowPowerModeEnabled {
+        didSet { player.lowPower = lowPower }
+    }
+    /// Low Power Mode: discs stand still, the moodboard does without glass
+    /// and redraws less, and the player's clock and waveform update less
+    /// often, so the app uses less energy.
+    var lowPower: Bool {
+        switch lowPowerSetting {
+        case .automatic: systemLowPower
+        case .on: true
+        case .off: false
+        }
+    }
     /// Whether the "+" menu is open (it spans the dock and the page behind it).
     var addMenuOpen = false
     /// The selected collection is showing its moodboard instead of its track list.
@@ -148,6 +169,7 @@ final class AppModel {
     @ObservationIgnored private let location = LibraryLocation()
     @ObservationIgnored private var accessedRoot: URL?
     @ObservationIgnored private var pendingOpenURLs: [URL] = []
+    @ObservationIgnored private var powerObserver: (any NSObjectProtocol)?
 
     init() {
         let defaults = UserDefaults.standard
@@ -156,6 +178,11 @@ final class AppModel {
         authorName = defaults.string(forKey: "comments.author") ?? NSFullUserName()
         unsplashAccessKey = defaults.string(forKey: "unsplash.accessKey") ?? ""
         liquidGlass = defaults.object(forKey: "appearance.liquidGlass") as? Bool ?? true
+        lowPowerSetting = defaults.string(forKey: "performance.lowPower").flatMap(LowPowerSetting.init(rawValue:)) ?? .automatic
+        player.lowPower = lowPower
+        powerObserver = NotificationCenter.default.addObserver(forName: .NSProcessInfoPowerStateDidChange, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.systemLowPower = ProcessInfo.processInfo.isLowPowerModeEnabled }
+        }
     }
 
     // MARK: - Library lifecycle
@@ -816,5 +843,23 @@ final class AppModel {
     private func sanitized(_ name: String) -> String {
         let cleaned = name.components(separatedBy: CharacterSet(charactersIn: "/:\\")).joined(separator: "-")
         return cleaned.isEmpty ? "Untitled" : cleaned
+    }
+}
+
+/// When the app tones things down to save energy.
+enum LowPowerSetting: String, CaseIterable, Identifiable {
+    /// Whenever the Mac is in Low Power Mode.
+    case automatic
+    case on
+    case off
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .automatic: "Automatic"
+        case .on: "On"
+        case .off: "Off"
+        }
     }
 }

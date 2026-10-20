@@ -28,6 +28,7 @@ Your library is **a plain folder you own**. Put it in iCloud Drive and it syncs 
 - **Export** a track (or any version), or a whole collection as numbered files. Drag a track straight into Finder or your DAW.
 - **A Metal welcome screen**: slowly spinning CDs, drawn per pixel with a small diffraction model, whose rainbow sheen follows your mouse. The same shader draws the launch screen, the "+" button's open state and the app icon. On a collection's page, the playing record gets a lighter sheen of its own and spins up and coasts down with playback.
 - **Liquid Glass** (macOS 26, on by default; Settings → Appearance): the player, buttons and toasts turn to glass, the window takes on the colours of the artwork you're looking at or listening to, a collection's play button and the playhead take their colour from the cover, a glass bead rides the playhead, and the "+" melts out of the player and opens into glass bubbles.
+- **Light on the CPU**: the spinning discs, the scrolling title and the "now playing" waveform are animated by Core Animation, so playing music costs a few percent of one core, and the clock, the waveform and a moodboard redraw only when something would visibly change. **Low Power Mode** (Settings → Energy; automatic when your Mac is in Low Power Mode, or always on or off) stops the discs spinning, draws moodboards without glass and at a gentler frame rate, and updates the player a few times a second.
 
 ## Getting started
 

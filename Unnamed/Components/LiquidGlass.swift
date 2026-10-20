@@ -3,6 +3,8 @@ import SwiftUI
 extension EnvironmentValues {
     /// Whether to draw with Liquid Glass (macOS 26+, and the Settings toggle is on).
     @Entry var liquidGlass = false
+    /// Low Power Mode: the costliest effects are toned down.
+    @Entry var lowPower = false
 }
 
 enum LiquidGlassSupport {

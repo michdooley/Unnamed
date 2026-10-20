@@ -143,9 +143,8 @@ private struct SidebarCollectionRow: View {
             ArtworkView(url: store.artworkURL(forCollection: collection.id), seed: collection.id, cornerRadius: 4, pixelSize: 64)
                 .frame(width: 20, height: 20)
             if isPlayingHere {
-                Image(systemName: "waveform")
-                    .font(.system(size: 11, weight: .semibold))
-                    .symbolEffect(.variableColor.iterative, isActive: player.isPlaying)
+                NowPlayingIndicator(animating: player.isPlaying, pointSize: 11)
+                    .fixedSize()
             }
             Text(collection.title)
                 .lineLimit(1)

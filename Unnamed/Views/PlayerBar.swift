@@ -28,7 +28,7 @@ struct PlayerBar: View {
                     .help("Show track details")
 
                 VStack(alignment: .leading, spacing: 1) {
-                    MarqueeText(text: track.title, font: .system(size: 13.5, weight: .medium))
+                    MarqueeText(text: track.title, font: .system(size: 13.5, weight: .medium), color: glass ? .primary : .white)
                         .frame(height: 18)
                     Text(subtitle)
                         .font(.system(size: 11.5))
@@ -37,41 +37,20 @@ struct PlayerBar: View {
                 }
                 .frame(width: density == .minimal ? 104 : 128, alignment: .leading)
 
+                // The waveform and the clock follow playback on their own, so the
+                // bar itself (and the window around it) isn't laid out again on
+                // every tick of the clock.
                 if density != .minimal {
-                    let width: CGFloat = density == .full ? 190 : 130
-                    let peaks = store.peaks(for: trackID, version: player.playingVersionID)
-                    Group {
-                        if glass {
-                            LensedWaveform(
-                                peaks: peaks,
-                                progress: player.progress,
-                                duration: player.duration,
-                                width: width,
-                                playhead: tint?.color ?? .accentColor,
-                                scratch: .record(player)
-                            ) {
-                                player.seek(toFraction: $0)
-                            }
-                        } else {
-                            WaveformView(
-                                peaks: peaks,
-                                progress: player.progress,
-                                style: .playerBar,
-                                duration: player.duration,
-                                onSeek: { player.seek(toFraction: $0) },
-                                scratch: .record(player)
-                            )
-                        }
-                    }
-                    .frame(width: width, height: 30)
-                    .opacity(player.isLoading ? 0.4 : 1)
+                    PlayerWaveform(
+                        peaks: store.peaks(for: trackID, version: player.playingVersionID),
+                        width: density == .full ? 190 : 130,
+                        glass: glass,
+                        playhead: glass ? tint?.color ?? .accentColor : Color(hex: 0xFFD60A)
+                    )
                 }
 
                 if density == .full {
-                    Text("\(Format.clock(player.currentTime)) / \(Format.clock(player.duration))")
-                        .font(.system(size: 12, design: .monospaced))
-                        .foregroundStyle(glass ? AnyShapeStyle(.secondary) : AnyShapeStyle(.white.opacity(0.6)))
-                        .fixedSize()
+                    PlayerClock(color: glass ? Color.secondary : Color.white.opacity(0.6))
                 }
 
                 HStack(spacing: 2) {
@@ -175,80 +154,115 @@ private struct PlayerSurface: ViewModifier {
     }
 }
 
-/// The waveform with a little glass bead riding the playhead, magnifying the
-/// bars under it. (Drawn by hand: real glass can't sit on the bar's glass.)
-private struct LensedWaveform: View {
+/// The player's waveform. The bars, the playhead and (with Liquid Glass) a
+/// little glass bead magnifying the bars under the playhead are all drawn on
+/// a canvas that follows the player by itself; a transparent waveform on top
+/// handles hovering, clicking and scratching.
+private struct PlayerWaveform: View {
+    @Environment(PlayerController.self) private var player
     let peaks: [UInt8]
-    let progress: Double
-    let duration: TimeInterval
     let width: CGFloat
-    var playhead: Color = .accentColor
-    var scratch: WaveformScratch?
-    let onSeek: (Double) -> Void
+    let glass: Bool
+    let playhead: Color
 
-    private let lens: CGFloat = 24
-    private let height: CGFloat = 30
     @State private var scrub: Double?
 
     var body: some View {
-        let shown = scrub ?? progress
-        let x = min(width, max(0, shown * width))
-        var style = WaveformView.Style.playerBarGlass
-        style.playhead = playhead
-        return ZStack {
-            // The waveform, with a hole where the bead is.
-            WaveformView(peaks: peaks, progress: progress, style: style, duration: duration, onSeek: onSeek, onScrub: { scrub = $0 }, scratch: scratch)
-                .mask {
-                    ZStack {
-                        // Generous, so the hover time above the bars isn't clipped.
-                        Rectangle().padding(-40)
-                        Circle()
-                            .frame(width: lens, height: lens)
-                            .position(x: x, y: height / 2)
-                            .blendMode(.destinationOut)
-                    }
-                    .compositingGroup()
-                }
-            // The same bars, magnified, inside the bead.
-            WaveformView(peaks: peaks, progress: shown, style: style)
-                .scaleEffect(1.9, anchor: UnitPoint(x: shown, y: 0.5))
-                .mask {
-                    Circle()
-                        .frame(width: lens, height: lens)
-                        .position(x: x, y: height / 2)
-                }
-                .allowsHitTesting(false)
-            bead
-                .position(x: x, y: height / 2)
-                .allowsHitTesting(false)
-        }
-        .frame(width: width, height: height)
-    }
-
-    private var bead: some View {
-        Circle()
-            .fill(.white.opacity(0.06))
-            .overlay(
-                Circle().strokeBorder(
-                    LinearGradient(
-                        colors: [.white.opacity(0.8), .white.opacity(0.08), .white.opacity(0.4)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    ),
-                    lineWidth: 1
-                )
+        ZStack {
+            PlayerWaveformBars(peaks: peaks, scrub: scrub, glass: glass, playhead: playhead)
+            WaveformView(
+                peaks: peaks,
+                progress: 0,
+                style: WaveformView.Style(barWidth: 2, gap: 1, played: .clear, unplayed: .clear, playhead: nil,
+                                          hover: glass ? .primary.opacity(0.4) : .white.opacity(0.6)),
+                showsPlayhead: false,
+                duration: player.duration,
+                onSeek: { player.seek(toFraction: $0) },
+                onScrub: { scrub = $0 },
+                scratch: .record(player)
             )
-            .overlay(alignment: .topLeading) {
-                // A specular glint.
-                Ellipse()
-                    .fill(.white.opacity(0.55))
-                    .frame(width: 8, height: 3.5)
-                    .rotationEffect(.degrees(-35))
-                    .offset(x: 4.5, y: 4.5)
-                    .blur(radius: 0.6)
+        }
+        .frame(width: width, height: 30)
+    }
+}
+
+private struct PlayerWaveformBars: View {
+    @Environment(PlayerController.self) private var player
+    @Environment(\.lowPower) private var lowPower
+    let peaks: [UInt8]
+    let scrub: Double?
+    let glass: Bool
+    let playhead: Color
+
+    var body: some View {
+        let _ = Perf.count("waveform")
+        let progress = min(1, max(0, scrub ?? player.progress))
+        let style = glass ? WaveformView.Style.playerBarGlass : WaveformView.Style.playerBar
+        let lens = glass && !lowPower
+        Canvas { context, size in
+            let step = style.barWidth + style.gap
+            let count = max(1, Int((size.width + style.gap) / step))
+            let bars = peaks.resampled(to: count)
+            let minHeight = max(1, size.height * 0.06)
+            func drawBars(_ context: inout GraphicsContext) {
+                for i in 0..<count {
+                    let level = peaks.isEmpty ? 0 : CGFloat(bars[i]) / 255
+                    let height = max(minHeight, level * size.height)
+                    let rect = CGRect(x: CGFloat(i) * step, y: (size.height - height) / 2, width: style.barWidth, height: height)
+                    let played = (Double(i) + 0.5) / Double(count) <= progress
+                    context.fill(Path(roundedRect: rect, cornerRadius: style.barWidth / 2), with: .color(played ? style.played : style.unplayed))
+                }
             }
-            .frame(width: lens, height: lens)
-            .shadow(color: .black.opacity(0.22), radius: 3, y: 1.5)
+            let x = min(size.width, max(0, progress * size.width))
+            let playheadRect = CGRect(x: min(size.width - 1, max(0, x - 1)), y: -1, width: 2, height: size.height + 2)
+            guard lens else {
+                var plain = context
+                drawBars(&plain)
+                context.fill(Path(roundedRect: playheadRect, cornerRadius: 1), with: .color(playhead))
+                return
+            }
+            // A bead over the playhead, magnifying what's under it.
+            let r: CGFloat = 12
+            let center = CGPoint(x: x, y: size.height / 2)
+            let bead = Path(ellipseIn: CGRect(x: center.x - r, y: center.y - r, width: r * 2, height: r * 2))
+            var outside = context
+            var everything = Path(CGRect(origin: .zero, size: size).insetBy(dx: -20, dy: -20))
+            everything.addPath(bead)
+            outside.clip(to: everything, style: FillStyle(eoFill: true))
+            drawBars(&outside)
+            outside.fill(Path(roundedRect: playheadRect, cornerRadius: 1), with: .color(playhead))
+            var inside = context
+            inside.clip(to: bead)
+            inside.translateBy(x: center.x, y: center.y)
+            inside.scaleBy(x: 1.9, y: 1.9)
+            inside.translateBy(x: -center.x, y: -center.y)
+            drawBars(&inside)
+            inside.fill(Path(roundedRect: playheadRect, cornerRadius: 1), with: .color(playhead))
+            context.fill(bead, with: .color(.white.opacity(0.06)))
+            context.stroke(bead, with: .linearGradient(Gradient(colors: [.white.opacity(0.8), .white.opacity(0.08), .white.opacity(0.4)]),
+                                                         startPoint: CGPoint(x: center.x - r, y: center.y - r),
+                                                         endPoint: CGPoint(x: center.x + r, y: center.y + r)), lineWidth: 1)
+            context.fill(Path(ellipseIn: CGRect(x: center.x - r + 4.5, y: center.y - r + 4.5, width: 8, height: 3.5)), with: .color(.white.opacity(0.55)))
+        }
+        .opacity(player.isLoading ? 0.4 : 1)
+        .allowsHitTesting(false)
+    }
+}
+
+/// "0:21 / 1:04", drawn on a canvas so the ticking clock doesn't make the
+/// window lay itself out again.
+private struct PlayerClock: View {
+    @Environment(PlayerController.self) private var player
+    let color: Color
+
+    var body: some View {
+        let label = "\(Format.clock(player.currentTime)) / \(Format.clock(player.duration))"
+        Canvas { context, size in
+            context.draw(Text(label).font(.system(size: 12, design: .monospaced)).foregroundStyle(color),
+                         at: CGPoint(x: size.width / 2, y: size.height / 2))
+        }
+        .frame(width: player.duration >= 3600 ? 130 : 96, height: 16)
+        .accessibilityLabel(label)
     }
 }
 

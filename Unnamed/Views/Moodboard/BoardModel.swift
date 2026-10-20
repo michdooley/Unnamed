@@ -75,6 +75,7 @@ final class BoardModel {
 
     var camera = BoardCamera() {
         didSet {
+            liveCamera = camera
             let percent = Int((camera.zoom * 100).rounded())
             if percent != zoomPercent { zoomPercent = percent }
         }
@@ -131,7 +132,13 @@ final class BoardModel {
     @ObservationIgnored private var textSave: Task<Void, Never>?
     @ObservationIgnored private var lastBackgroundCheckpoint: Date?
     @ObservationIgnored private var lastFrame: CFTimeInterval?
-    @ObservationIgnored private var clock: (time: Double, at: CFTimeInterval) = (0, 0)
+    /// Where a moving camera really is. `camera`, which everything is drawn
+    /// with, only catches up once the difference would show.
+    @ObservationIgnored private var liveCamera = BoardCamera()
+    /// The playhead as last drawn (its song and place on screen).
+    @ObservationIgnored private var drawnBead: (id: UUID, point: CGPoint)?
+    /// The playhead as the frame loop last worked it out, and when.
+    @ObservationIgnored private var framedBead: (bead: BoardBead?, at: CFTimeInterval)?
     @ObservationIgnored private var followZoom: CGFloat = 1
     @ObservationIgnored private var cameraSave: Task<Void, Never>?
     @ObservationIgnored private var opened = false
@@ -924,6 +931,7 @@ final class BoardModel {
     }
 
     func fly(to target: BoardCamera, duration: Double? = nil, dip: Bool = false) {
+        let camera = liveCamera
         let distance = hypot(target.center.x - camera.center.x, target.center.y - camera.center.y) * camera.zoom
         let screen = max(size.width, 400)
         flight = Flight(
@@ -968,20 +976,20 @@ final class BoardModel {
 
     // MARK: - Following the music
 
+    /// The playhead to draw. While the music plays, the frame loop works it
+    /// out (and decides when it has moved enough to be drawn again), so
+    /// drawing it doesn't tie the board to every tick of the player's clock.
+    func shownBead() -> BoardBead? {
+        if player.isPlaying, let framed = framedBead, CACurrentMediaTime() - framed.at < 0.1 { return framed.bead }
+        return bead()
+    }
+
     /// The playhead on the board, if the song playing is on it.
     func bead() -> BoardBead? {
         guard let trackID = player.currentTrackID, let item = placement(of: trackID), player.duration > 0 else { return nil }
-        let fraction = min(1, max(0, playheadTime() / player.duration))
+        let fraction = min(1, max(0, player.exactTime / player.duration))
         let sample = path(item).sample(atFraction: fraction)
         return BoardBead(item: item, fraction: fraction, point: sample.point, tangent: sample.tangent)
-    }
-
-    /// The player's time, run forward smoothly between its updates.
-    private func playheadTime() -> Double {
-        let time = player.currentTime
-        if time != clock.time { clock = (time, frameTime) }
-        guard player.isPlaying, !player.isScratching else { return time }
-        return min(time + max(0, frameTime - clock.at), time + 0.25, player.duration)
     }
 
     var isJourneyPlaying: Bool {
@@ -1053,26 +1061,54 @@ final class BoardModel {
     func step(_ now: CFTimeInterval) {
         let dt = lastFrame.map { min(0.1, max(0, now - $0)) } ?? 1 / 60
         lastFrame = now
-        frameTime = now
+        // Threads unspooling change every frame.
+        var redraw = reveal < 1 || !unspooling.isEmpty
         if reveal < 1 { reveal = min(1, reveal + dt / 1.3) }
         for (id, start) in unspooling where now - start > 1 { unspooling[id] = nil }
 
+        let current = bead()
+        framedBead = (current, CACurrentMediaTime())
+        var next = liveCamera
         if var flight {
             if flight.start == nil {
                 flight.start = now
                 self.flight = flight
             }
             let t = min(1, (now - (flight.start ?? now)) / flight.duration)
-            camera = flight.camera(at: t)
-            if t >= 1 { self.flight = nil }
-        } else if following {
-            follow(dt)
+            next = flight.camera(at: t)
+            if t >= 1 {
+                self.flight = nil
+                redraw = true
+            }
+        } else if following, let current {
+            follow(current, dt: dt, camera: &next)
         }
+        liveCamera = next
 
+        // Each redraw costs the whole board, so a frame is only drawn when
+        // something would visibly move: the view, or the playhead on screen,
+        // by about a pixel. At the music's pace that's often a fraction of
+        // the display's frames.
+        let hair: CGFloat = player.lowPower ? 1.5 : 0.5
+        let bead = current.map { (id: $0.item.id, point: next.screen($0.point, in: size)) }
+        if camera.shift(to: next, in: size) >= hair {
+            redraw = true
+        }
+        if let bead, let drawnBead {
+            if bead.id != drawnBead.id || hypot(bead.point.x - drawnBead.point.x, bead.point.y - drawnBead.point.y) >= hair {
+                redraw = true
+            }
+        } else if (bead == nil) != (drawnBead == nil) {
+            redraw = true
+        }
+        if redraw {
+            camera = next
+            drawnBead = bead
+            frameTime = now
+        }
     }
 
-    private func follow(_ dt: Double) {
-        guard let bead = bead() else { return }
+    private func follow(_ bead: BoardBead, dt: Double, camera: inout BoardCamera) {
         // Look a little ahead, and keep the playhead in the middle of the uncovered area.
         let lead = 80 / camera.zoom
         let ahead = CGPoint(x: bead.point.x + bead.tangent.dx * lead, y: bead.point.y + bead.tangent.dy * lead)

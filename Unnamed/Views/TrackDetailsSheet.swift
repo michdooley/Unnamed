@@ -255,9 +255,9 @@ private struct TrackSummary: View {
         let comments = store.comments(for: track.id, version: shown)
         VStack(spacing: 0) {
             Spacer(minLength: 44)
-            DiscView(artworkURL: artwork.url, seed: artwork.seed, spinning: isCurrent && player.isPlaying)
+            DiscView(artworkURL: artwork.url, seed: artwork.seed, spinning: isCurrent && player.isPlaying,
+                     shadow: DiscShadow(opacity: 0.15, radius: 10, y: 4))
                 .frame(width: 132, height: 132)
-                .shadow(color: .black.opacity(0.15), radius: 10, y: 4)
                 .onTapGesture { togglePlay() }
             Text(track.title)
                 .font(.system(size: 19, weight: .medium))
@@ -506,7 +506,7 @@ private struct CommentsPane: View {
     }
 
     private var liveTime: TimeInterval {
-        player.playingVersion(of: trackID) == shownVersion ? player.currentTime : 0
+        player.playingVersion(of: trackID) == shownVersion ? player.exactTime : 0
     }
 
     private func post() {

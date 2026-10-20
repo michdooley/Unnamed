@@ -24,6 +24,14 @@ struct BoardCamera: Equatable, Codable {
         CGPoint(x: (point.x - size.width / 2) / zoom + center.x, y: (point.y - size.height / 2) / zoom + center.y)
     }
 
+    /// About how far (in points) anything on screen moves going from this
+    /// camera to `other`: the pan, plus the zoom's pull at the view's corners.
+    func shift(to other: BoardCamera, in size: CGSize) -> CGFloat {
+        let pan = hypot(other.center.x - center.x, other.center.y - center.y) * other.zoom
+        let zoom = abs(other.zoom - self.zoom) / max(self.zoom, 0.01) * hypot(size.width, size.height) / 2
+        return pan + zoom
+    }
+
     /// Moves the view by a distance on screen (the board follows the fingers).
     mutating func pan(by delta: CGSize) {
         center.x -= delta.width / zoom
@@ -86,22 +94,34 @@ func smoothstep(_ edge0: Double, _ edge1: Double, _ x: Double) -> Double {
 /// Calls `onFrame` on every display refresh while `active`.
 struct FrameDriver: NSViewRepresentable {
     var active: Bool
-    /// 60 fps while the camera moves; 30 is plenty otherwise.
-    var fast = true
+    var pace: Pace = .smooth
     var onFrame: (CFTimeInterval) -> Void
+
+    enum Pace {
+        /// 60 fps, while the camera moves.
+        case smooth
+        /// 30 fps is plenty otherwise.
+        case steady
+        /// 15 fps, in Low Power Mode.
+        case gentle
+
+        var range: CAFrameRateRange {
+            switch self {
+            case .smooth: CAFrameRateRange(minimum: 30, maximum: 60, preferred: 60)
+            case .steady: CAFrameRateRange(minimum: 20, maximum: 30, preferred: 30)
+            case .gentle: CAFrameRateRange(minimum: 10, maximum: 15, preferred: 15)
+            }
+        }
+    }
 
     final class DriverView: NSView {
         var onFrame: ((CFTimeInterval) -> Void)?
         var wantsFrames = false { didSet { update() } }
-        var fast = true {
+        var pace = Pace.smooth {
             didSet {
-                guard fast != oldValue else { return }
-                link?.preferredFrameRateRange = Self.range(fast: fast)
+                guard pace != oldValue else { return }
+                link?.preferredFrameRateRange = pace.range
             }
-        }
-
-        static func range(fast: Bool) -> CAFrameRateRange {
-            fast ? CAFrameRateRange(minimum: 30, maximum: 60, preferred: 60) : CAFrameRateRange(minimum: 20, maximum: 30, preferred: 30)
         }
         private var link: CADisplayLink?
 
@@ -119,7 +139,7 @@ struct FrameDriver: NSViewRepresentable {
                 guard link == nil else { return }
                 let link = displayLink(target: self, selector: #selector(tick(_:)))
                 // Smooth is plenty; no need for 120 Hz.
-                link.preferredFrameRateRange = Self.range(fast: fast)
+                link.preferredFrameRateRange = pace.range
                 link.add(to: .main, forMode: .common)
                 self.link = link
             } else {
@@ -137,7 +157,7 @@ struct FrameDriver: NSViewRepresentable {
 
     func updateNSView(_ view: DriverView, context: Context) {
         view.onFrame = onFrame
-        view.fast = fast
+        view.pace = pace
         view.wantsFrames = active
     }
 

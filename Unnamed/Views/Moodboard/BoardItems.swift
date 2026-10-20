@@ -25,11 +25,11 @@ struct ThreadCard: View {
         } else {
             // Zoomed far out, just the disc.
             let art = model.artwork(forTrack: track.id, in: nil)
-            DiscView(artworkURL: art.url, seed: art.seed, spinning: isCurrent && isPlaying, speed: 40)
+            DiscView(artworkURL: art.url, seed: art.seed, spinning: isCurrent && isPlaying, speed: 40,
+                     shadow: DiscShadow(opacity: 0.4, radius: 3))
                 .frame(width: max(10, 36 * scale), height: max(10, 36 * scale))
                 .padding(.leading, 9 * scale)
                 .frame(width: BoardModel.cardSize.width * scale, height: BoardModel.cardSize.height * scale, alignment: .leading)
-                .shadow(color: .black.opacity(0.4), radius: 3)
         }
     }
 

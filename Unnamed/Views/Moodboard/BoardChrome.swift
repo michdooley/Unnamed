@@ -112,7 +112,7 @@ private struct TrayRow: View {
 }
 
 enum BoardSpace {
-    static let name = "moodboard"
+    nonisolated static let name = "moodboard"
 }
 
 /// What's being dragged out of the tray.

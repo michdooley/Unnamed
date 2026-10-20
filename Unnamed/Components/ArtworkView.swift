@@ -31,15 +31,10 @@ struct ArtworkView: View {
             .task(id: url) {
                 loaded = nil
                 guard let url else { return }
-                // The image may still be syncing down from iCloud; retry briefly.
-                for attempt in 0..<6 {
-                    if let image = await ArtworkCache.shared.image(for: url, pixelSize: pixelSize) {
-                        loaded = image
-                        return
-                    }
-                    try? await Task.sleep(for: .seconds(Double(attempt + 1) * 2))
-                    if Task.isCancelled { return }
-                }
+                let image = await ArtworkCache.shared.waitForImage(for: url, pixelSize: pixelSize)
+                // A newer artwork may have taken this one's place meanwhile.
+                guard !Task.isCancelled else { return }
+                loaded = image
             }
     }
 }
@@ -84,6 +79,17 @@ final class ArtworkCache {
         let image = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
         cache.setObject(image, forKey: key)
         return image
+    }
+
+    /// Like `image(for:pixelSize:)`, but gives a file that may still be
+    /// syncing down from iCloud a little while to arrive.
+    func waitForImage(for url: URL, pixelSize: Int) async -> NSImage? {
+        for attempt in 0..<6 {
+            if let image = await image(for: url, pixelSize: pixelSize) { return image }
+            try? await Task.sleep(for: .seconds(Double(attempt + 1) * 2))
+            if Task.isCancelled { return nil }
+        }
+        return nil
     }
 
     private func key(_ url: URL, _ pixelSize: Int) -> NSString {

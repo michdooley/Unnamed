@@ -12,6 +12,7 @@ struct UnnamedApp: App {
                 .environment(model)
                 .environment(model.player)
                 .environment(\.liquidGlass, model.liquidGlass && LiquidGlassSupport.isAvailable)
+                .environment(\.lowPower, model.lowPower)
                 .frame(minWidth: 860, minHeight: 560)
         }
         .defaultSize(width: 1320, height: 860)
@@ -23,6 +24,7 @@ struct UnnamedApp: App {
             SettingsView()
                 .environment(model)
                 .environment(\.liquidGlass, model.liquidGlass && LiquidGlassSupport.isAvailable)
+                .environment(\.lowPower, model.lowPower)
         }
     }
 }

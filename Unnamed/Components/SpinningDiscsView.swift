@@ -33,13 +33,16 @@ struct SpinningDiscsView: View {
 
     @State private var light = LightTracker()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.lowPower) private var lowPower
 
     var body: some View {
         GeometryReader { geo in
             let size = geo.size
-            TimelineView(.animation(minimumInterval: 1 / 60, paused: reduceMotion)) { context in
+            // Still in Low Power Mode, as with Reduce Motion.
+            let still = reduceMotion || lowPower
+            TimelineView(.animation(minimumInterval: 1 / 60, paused: still)) { context in
                 let now = context.date.addingTimeInterval(timeOffset)
-                let time = reduceMotion ? 0 : now.timeIntervalSince(light.start)
+                let time = still ? 0 : now.timeIntervalSince(light.start)
                 Rectangle()
                     .fill(Self.backdrop)
                     .cdShader(
@@ -101,14 +104,15 @@ struct ShaderDiscView: View {
 
     @State private var light = LightTracker()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.lowPower) private var lowPower
 
     var body: some View {
         GeometryReader { geo in
             let size = geo.size
-            let still = reduceMotion || (speed == 0 && fixedLight != nil)
+            let still = reduceMotion || lowPower || (speed == 0 && fixedLight != nil)
             TimelineView(.animation(minimumInterval: 1 / 60, paused: still)) { context in
                 let now = context.date
-                let time = reduceMotion ? 0 : now.timeIntervalSince(light.start)
+                let time = reduceMotion || lowPower ? 0 : now.timeIntervalSince(light.start)
                 let lightPoint = fixedLight.map { CGPoint(x: $0.x * size.width, y: $0.y * size.height) }
                     ?? light.position(at: now, in: size)
                 // A nearly clear fill, so the shader runs on every pixel.

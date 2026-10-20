@@ -23,6 +23,10 @@ public final class PlayerController {
     public private(set) var isPlaying = false
     /// True while the current track is being fetched from iCloud.
     public private(set) var isLoading = false
+    /// Where playback is, as clocks and waveforms need it: brought up to date
+    /// when the second changes or the playhead has moved a hair, rather than
+    /// every few milliseconds (each change redraws whatever shows it). Things
+    /// drawn every frame read `exactTime`.
     public private(set) var currentTime: TimeInterval = 0
     public private(set) var duration: TimeInterval = 0
     /// The app's own volume (on top of the system's). Always starts at full,
@@ -36,6 +40,21 @@ public final class PlayerController {
     public var repeatMode: RepeatMode { queue.repeatMode }
     public var progress: Double { duration > 0 ? min(1, max(0, currentTime / duration)) : 0 }
     public var hasTrack: Bool { currentTrackID != nil }
+
+    /// Where playback is right now, to the sample. (A view showing it is
+    /// redrawn as `currentTime` changes.)
+    public var exactTime: TimeInterval {
+        let published = currentTime
+        guard isPlaying, !isScratching, !isSeeking, player.currentItem != nil else { return published }
+        let seconds = player.currentTime().seconds
+        guard seconds.isFinite else { return published }
+        return max(0, duration > 0 ? min(seconds, duration) : seconds)
+    }
+
+    /// Low Power Mode: the time is published a few times a second at most.
+    public var lowPower = false {
+        didSet { if lowPower != oldValue { observeTime() } }
+    }
 
     /// The version of `trackID` that's loaded, if that track is the current one.
     public func playingVersion(of trackID: UUID) -> UUID? {
@@ -84,10 +103,15 @@ public final class PlayerController {
         player.actionAtItemEnd = .pause
         // Files are local, and scratching needs to start playback at an exact host time.
         player.automaticallyWaitsToMinimizeStalling = false
-        timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(value: 1, timescale: 24), queue: .main) { [weak self] time in
+        observeTime()
+        nowPlaying.install(on: self)
+    }
+
+    private func observeTime() {
+        if let timeObserver { player.removeTimeObserver(timeObserver) }
+        timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(value: 1, timescale: lowPower ? 4 : 24), queue: .main) { [weak self] time in
             MainActor.assumeIsolated { self?.timeDidChange(time.seconds) }
         }
-        nowPlaying.install(on: self)
     }
 
     // MARK: - Starting playback
@@ -183,8 +207,10 @@ public final class PlayerController {
 
     public func pause() {
         abortScratch(restoringPosition: true)
+        let stoppedAt = exactTime
         isPlaying = false
         player.pause()
+        if !isSeeking, player.currentItem != nil { currentTime = stoppedAt }
         updateNowPlaying()
     }
 
@@ -236,7 +262,7 @@ public final class PlayerController {
     }
 
     public func skip(by seconds: TimeInterval) {
-        seek(to: currentTime + seconds)
+        seek(to: exactTime + seconds)
     }
 
     public func toggleShuffle() {
@@ -321,7 +347,7 @@ public final class PlayerController {
         // Also cancels a hand-off that was about to start AVPlayer.
         player.pause()
         deck.stop()
-        scratchTarget = clampedScratchTime(seconds ?? spinning?.seconds ?? currentTime)
+        scratchTarget = clampedScratchTime(seconds ?? spinning?.seconds ?? exactTime)
         currentTime = scratchTarget
         let speed = seconds == nil ? spinning?.speed ?? 0 : 0
         Task { [weak self] in
@@ -666,6 +692,9 @@ public final class PlayerController {
 
     private func timeDidChange(_ seconds: Double) {
         guard !isSeeking, !isScratching, player.currentItem != nil, seconds.isFinite else { return }
+        // A new second for the clock, or about a pixel's move along a waveform.
+        let step = max(1.0 / 24, duration / 900)
+        guard Int(seconds) != Int(currentTime) || abs(seconds - currentTime) >= step else { return }
         currentTime = seconds
     }
 

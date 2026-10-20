@@ -152,6 +152,23 @@ struct SettingsView: View {
                 }
             }
             Section {
+                Picker("Low Power Mode", selection: $model.lowPowerSetting) {
+                    ForEach(LowPowerSetting.allCases) { setting in
+                        Text(setting.title).tag(setting)
+                    }
+                }
+            } header: {
+                Text("Energy")
+            } footer: {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Stops the discs spinning, draws moodboards without glass and updates the player less often, so Unnamed uses less energy. Automatic turns it on when your Mac is in Low Power Mode.")
+                    if model.lowPowerSetting == .automatic, model.systemLowPower {
+                        Text("Your Mac is in Low Power Mode, so it's on now.")
+                    }
+                }
+                .foregroundStyle(.secondary)
+            }
+            Section {
                 TextField("Your name", text: $model.authorName)
             } header: {
                 Text("Comments")

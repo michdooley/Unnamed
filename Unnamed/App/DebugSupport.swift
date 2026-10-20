@@ -199,7 +199,16 @@ enum DebugSupport {
         }
         let previousVolume = model.player.volume
         model.player.setVolume(0)
-        NSApp.activate()
+        await openMainWindow()
+        if arguments.contains("-behind"), let window = NSApp.windows.first(where: { $0.isVisible && $0.styleMask.contains(.titled) }) {
+            // On whichever Space is showing (even over a full-screen app), but
+            // behind everything, so the handshake driver can capture it
+            // without getting in the way.
+            window.collectionBehavior.formUnion([.canJoinAllSpaces, .fullScreenAuxiliary])
+            window.orderBack(nil)
+        } else {
+            NSApp.activate()
+        }
         if let size = argument(after: "-windowSize")?.split(separator: "x").compactMap({ Double($0) }), size.count == 2,
            let window = NSApp.windows.first(where: { $0.isVisible && $0.styleMask.contains(.titled) }) {
             window.setFrame(CGRect(origin: window.frame.origin, size: CGSize(width: size[0], height: size[1])), display: true)
@@ -234,6 +243,11 @@ enum DebugSupport {
             NSApp.terminate(nil)
             return
         }
+        if arguments.contains("-perf"), let snippets {
+            await runPerfScenarios(store: store, collectionID: snippets.id)
+            NSApp.terminate(nil)
+            return
+        }
         if arguments.contains("-boardProbe"), let snippets {
             await probeBoard(store: store, collectionID: snippets.id)
             NSApp.terminate(nil)
@@ -241,6 +255,10 @@ enum DebugSupport {
         }
         if arguments.contains("-boardLab"), let snippets {
             await shootBoardLab(store: store, collectionID: snippets.id, folder: folder)
+            return
+        }
+        if arguments.contains("-discLab"), let snippets {
+            await shootDiscLab(store: store, collectionID: snippets.id, folder: folder)
             return
         }
         if arguments.contains("-glassLab"), let snippets {
@@ -328,6 +346,7 @@ enum DebugSupport {
             .environment(model)
             .environment(model.player)
             .environment(\.liquidGlass, model.liquidGlass && LiquidGlassSupport.isAvailable)
+            .environment(\.lowPower, model.lowPower)
             .frame(width: size.width, height: size.height)
             .background(Color(nsColor: .textBackgroundColor)))
         let window = NSWindow(contentRect: CGRect(origin: .zero, size: size), styleMask: [.borderless], backing: .buffered, defer: false)
@@ -338,6 +357,37 @@ enum DebugSupport {
         log("rendering \(name)")
         capture(window, to: folder.appending(path: "\(name).png"))
         window.orderOut(nil)
+    }
+
+    /// Discs as Core Animation draws them, next to the old SwiftUI-and-shader
+    /// drawing, in a window behind everything on the current Space; captured
+    /// twice a moment apart by the handshake driver, to see which way it turns.
+    @MainActor
+    private static func shootDiscLab(store: LibraryStore, collectionID: UUID, folder: URL) async {
+        let model = AppModel.shared
+        let art = store.artworkURL(forCollection: collectionID)
+        let size = CGSize(width: 900, height: 280)
+        let host = NSHostingView(rootView: DiscLab(art: art, seed: collectionID)
+            .environment(model)
+            .environment(model.player)
+            .frame(width: size.width, height: size.height))
+        let window = NSWindow(contentRect: CGRect(origin: .zero, size: size), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = host
+        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        window.setFrameOrigin(NSScreen.main?.visibleFrame.origin ?? .zero)
+        window.orderBack(nil)
+        for (name, wait) in [("disc-1", 3.0), ("disc-2", 0.4)] {
+            try? await Task.sleep(for: .seconds(wait))
+            log("READY \(name)")
+            let done = folder.appending(path: "\(name).done")
+            for _ in 0..<120 where !FileManager.default.fileExists(atPath: done.path) {
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+        }
+        window.orderOut(nil)
+        await renderStandalone(SettingsView(), size: CGSize(width: 540, height: 760), name: "settings", folder: folder)
+        log("SNAPSHOTS: \(folder.path)")
+        if arguments.contains("-quitAfterSnapshot") { NSApp.terminate(nil) }
     }
 
     /// Liquid Glass pieces in an off-screen window, each captured by the
@@ -506,6 +556,63 @@ enum DebugSupport {
         return data
     }
 
+    /// Opens the library window if it isn't (the app can launch without one,
+    /// when the last run ended with it closed).
+    @MainActor
+    private static func openMainWindow() async {
+        guard !NSApp.windows.contains(where: { KeyboardShortcuts.isMainWindow($0) && $0.isVisible }) else { return }
+        let windowMenu = NSApp.windowsMenu ?? NSApp.mainMenu?.items.first(where: { $0.title == "Window" })?.submenu
+        if let windowMenu, let index = windowMenu.items.firstIndex(where: { $0.title == "Library" }) {
+            windowMenu.performActionForItem(at: index)
+        }
+        try? await Task.sleep(for: .seconds(2))
+    }
+
+    /// Puts the library window through everyday states, logging "PERF <name>
+    /// START/END" around a few seconds of each so CPU can be sampled outside.
+    @MainActor
+    private static func runPerfScenarios(store: LibraryStore, collectionID: UUID) async {
+        let model = AppModel.shared
+        let player = model.player
+        await makeDemoBoard(store: store, collectionID: collectionID)
+        // The board opens fitted to everything, not wherever an earlier run left it.
+        UserDefaults.standard.removeObject(forKey: "moodboard.camera.\(collectionID.uuidString)")
+        player.setVolume(0)
+        await openMainWindow()
+        func scenario(_ name: String, settle: Duration = .seconds(2.5), _ setUp: () -> Void) async {
+            setUp()
+            try? await Task.sleep(for: settle)
+            Perf.counts = [:]
+            log("PERF \(name) START")
+            try? await Task.sleep(for: .seconds(5))
+            log("PERF \(name) END " + Perf.counts.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: " "))
+            try? await Task.sleep(for: .seconds(0.7))   // let the measurer read the CPU time before anything changes
+        }
+        let glass = model.liquidGlass
+        let only = argument(after: "-perfOnly").map { Set($0.split(separator: ",").map(String.init)) }
+        func run(_ name: String, settle: Duration = .seconds(2.5), _ setUp: () -> Void) async {
+            if let only, !only.contains(name) { setUp(); return }
+            await scenario(name, settle: settle, setUp)
+        }
+        model.selection = .home
+        await run("idle-home") {}
+        await run("playing-home") { player.play(collection: collectionID) }
+        await run("playing-alltracks") { model.selection = .allTracks }
+        await run("playing-collection") { model.selection = .collection(collectionID) }
+        await run("playing-collection-noglass") { model.liquidGlass = false }
+        model.liquidGlass = glass
+        await run("paused-collection") { player.pause() }
+        player.resume()
+        await run("board-playing") { model.setMoodboardOpen(true) }
+        await run("board-following") { BoardModel.latest?.startFollowing() }
+        await run("board-following-noglass") { model.liquidGlass = false }
+        model.liquidGlass = glass
+        await run("board-paused") { player.pause() }
+        model.setMoodboardOpen(false)
+        player.stop()
+        log("PERF DONE")
+    }
+
     /// Drives a moodboard with synthetic mouse events in a hidden panel (the
     /// real pointer doesn't move) and checks the edits land.
     @MainActor
@@ -521,6 +628,7 @@ enum DebugSupport {
             .environment(model)
             .environment(player)
             .environment(\.liquidGlass, model.liquidGlass && LiquidGlassSupport.isAvailable)
+            .environment(\.lowPower, model.lowPower)
             .frame(width: size.width, height: size.height))
         panel.setFrameOrigin(NSScreen.main?.visibleFrame.origin ?? .zero)
         panel.orderBack(nil)
@@ -751,6 +859,7 @@ enum DebugSupport {
             .environment(model)
             .environment(model.player)
             .environment(\.liquidGlass, model.liquidGlass && LiquidGlassSupport.isAvailable)
+            .environment(\.lowPower, model.lowPower)
             .frame(width: size.width, height: size.height))
         let window = NSWindow(contentRect: CGRect(origin: .zero, size: size), styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentView = host
@@ -796,6 +905,7 @@ enum DebugSupport {
                 .environment(model)
                 .environment(model.player)
                 .environment(\.liquidGlass, model.liquidGlass && LiquidGlassSupport.isAvailable)
+                .environment(\.lowPower, model.lowPower)
                 .frame(width: size.width, height: size.height))
             blank.setFrameOrigin(NSScreen.main?.visibleFrame.origin ?? .zero)
             blank.orderBack(nil)
@@ -854,6 +964,7 @@ enum DebugSupport {
         .environment(model)
         .environment(player)
         .environment(\.liquidGlass, model.liquidGlass && LiquidGlassSupport.isAvailable)
+        .environment(\.lowPower, model.lowPower)
         .frame(width: size.width, height: size.height))
         panel.setFrameOrigin(NSScreen.main?.visibleFrame.origin ?? .zero)
         panel.orderBack(nil)
@@ -1084,6 +1195,55 @@ private nonisolated struct SplitMix64 {
         z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
         z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
         return z ^ (z >> 31)
+    }
+}
+/// The old disc (SwiftUI drawing it, the shader adding the sheen), a new one
+/// standing still and a new one spinning.
+private struct DiscLab: View {
+    let art: URL?
+    let seed: UUID
+
+    var body: some View {
+        HStack(spacing: 24) {
+            ZStack {
+                ArtworkView(url: art, seed: seed, cornerRadius: 110, pixelSize: 400)
+                ForEach(1..<5) { ring in
+                    Circle()
+                        .stroke(.white.opacity(0.07), lineWidth: 1.1)
+                        .padding(220 * (0.08 + CGFloat(ring) * 0.06))
+                }
+                Circle().fill(.white.opacity(0.9)).frame(width: 44, height: 44)
+                Circle().stroke(.black.opacity(0.12), lineWidth: 1.375).frame(width: 44, height: 44)
+                Circle().fill(Color(nsColor: .windowBackgroundColor)).frame(width: 15.4, height: 15.4)
+            }
+            .frame(width: 220, height: 220)
+            .colorEffect(ShaderLibrary.cdSheen(.float2(220, 220), .float2(396, -176), .float(0.35)))
+            DiscView(artworkURL: art, seed: seed)
+                .frame(width: 220, height: 220)
+            DiscView(artworkURL: art, seed: seed, spinning: true, speed: 90, shadow: DiscShadow(opacity: 0.3, radius: 10, y: 4))
+                .frame(width: 220, height: 220)
+            VStack(spacing: 18) {
+                HStack(spacing: 8) {
+                    Image(systemName: "waveform").font(.system(size: 15, weight: .semibold))
+                    NowPlayingIndicator(animating: false, pointSize: 15).fixedSize()
+                    NowPlayingIndicator(animating: true, pointSize: 15).fixedSize()
+                }
+                HStack(spacing: 8) {
+                    Image(systemName: "waveform").font(.system(size: 11, weight: .semibold))
+                    NowPlayingIndicator(animating: false, pointSize: 11).fixedSize()
+                    NowPlayingIndicator(animating: true, pointSize: 11).fixedSize()
+                }
+                HStack(spacing: 8) {
+                    Image(systemName: "waveform").font(.system(size: 15, weight: .semibold))
+                    NowPlayingIndicator(animating: true, pointSize: 15).fixedSize()
+                }
+                .padding(6)
+                .background(Color.black)
+                .environment(\.colorScheme, .dark)
+            }
+        }
+        .padding(30)
+        .background(Color(nsColor: .windowBackgroundColor))
     }
 }
 #endif

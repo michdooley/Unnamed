@@ -85,9 +85,12 @@ struct TrackRow: View {
     @ViewBuilder
     private func leading(isCurrent: Bool) -> some View {
         if isCurrent {
-            Image(systemName: player.isLoading ? "icloud.and.arrow.down" : "waveform")
-                .font(.system(size: 15, weight: .semibold))
-                .symbolEffect(.variableColor.iterative, isActive: player.isPlaying || player.isLoading)
+            NowPlayingIndicator(
+                animating: player.isPlaying || player.isLoading,
+                pointSize: 15,
+                symbol: player.isLoading ? "icloud.and.arrow.down" : "waveform"
+            )
+            .fixedSize()
         } else if hovering {
             Image(systemName: "play.fill")
                 .font(.system(size: 13))

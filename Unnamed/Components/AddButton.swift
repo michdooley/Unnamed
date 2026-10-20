@@ -177,9 +177,10 @@ enum AddOption: String, CaseIterable, Identifiable, Sendable {
 private struct IridescentRim: View {
     var active: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.lowPower) private var lowPower
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 30, paused: !active || reduceMotion)) { context in
+        TimelineView(.animation(minimumInterval: 1 / 30, paused: !active || reduceMotion || lowPower)) { context in
             let turn = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 6) / 6 * 360
             Circle()
                 .strokeBorder(
