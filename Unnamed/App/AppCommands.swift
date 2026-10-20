@@ -28,6 +28,9 @@ struct AppCommands: Commands {
             Button("Create Library…") { model.createLibraryInICloud() }
             Button("Show Library in Finder") { model.revealLibraryInFinder() }
                 .disabled(model.store == nil)
+            Divider()
+            Button("Find Missing Keys and Tempos") { model.detectMissingKeysAndTempos() }
+                .disabled(model.store == nil)
         }
 
         CommandGroup(before: .windowArrangement) {

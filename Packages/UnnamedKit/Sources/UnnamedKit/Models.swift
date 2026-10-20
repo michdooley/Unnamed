@@ -16,6 +16,11 @@ public struct TrackVersion: Identifiable, Hashable, Sendable {
     public var createdAt: Date
     /// Optional label like "rough mix" or "new vocal".
     public var name: String?
+    /// What the app heard in this version's audio (see `MusicAnalyzer`),
+    /// and when it listened. Nil values with a date mean it couldn't tell.
+    public var detectedBPM: Double?
+    public var detectedKey: String?
+    public var detectedAt: Date?
 
     public init(
         id: UUID = UUID(),
@@ -36,7 +41,7 @@ public struct TrackVersion: Identifiable, Hashable, Sendable {
 
 extension TrackVersion: Codable {
     enum CodingKeys: String, CodingKey {
-        case id, audioFile, originalFileName, duration, createdAt, name
+        case id, audioFile, originalFileName, duration, createdAt, name, detectedBPM, detectedKey, detectedAt
     }
 
     public init(from decoder: any Decoder) throws {
@@ -47,6 +52,9 @@ extension TrackVersion: Codable {
         duration = try c.decodeIfPresent(TimeInterval.self, forKey: .duration) ?? 0
         createdAt = try c.decodeIfPresent(Date.self, forKey: .createdAt) ?? .distantPast
         name = try c.decodeIfPresent(String.self, forKey: .name)
+        detectedBPM = try? c.decodeIfPresent(Double.self, forKey: .detectedBPM)
+        detectedKey = try? c.decodeIfPresent(String.self, forKey: .detectedKey)
+        detectedAt = try? c.decodeIfPresent(Date.self, forKey: .detectedAt)
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -57,6 +65,9 @@ extension TrackVersion: Codable {
         try c.encode(duration, forKey: .duration)
         try c.encode(createdAt, forKey: .createdAt)
         try c.encodeIfPresent(name, forKey: .name)
+        try c.encodeIfPresent(detectedBPM, forKey: .detectedBPM)
+        try c.encodeIfPresent(detectedKey, forKey: .detectedKey)
+        try c.encodeIfPresent(detectedAt, forKey: .detectedAt)
     }
 }
 

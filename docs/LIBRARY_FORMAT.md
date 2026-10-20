@@ -63,7 +63,7 @@ Informational only. Libraries created by format 1 keep `"version": 1` and are re
 | `artworkFile` | string | file name inside the track folder |
 | `artworkCredit` | credit | optional: who to credit for the artwork (below) |
 | `bpm` | number | optional |
-| `key` | string | optional, e.g. `"F♯ minor"` |
+| `key` | string | optional, e.g. `"F♯ minor"`: a note (`C`, `C♯`, `D`, `E♭`, `E`, `F`, `F♯`, `G`, `A♭`, `A`, `B♭`, `B`) and `major` or `minor` |
 | `archivedAt` | date | optional: when the track was archived (see below) |
 
 Every track belongs to at least one collection. A track that isn't listed in any `collection.json` (for example, while files are still syncing) is still shown in All Tracks.
@@ -80,6 +80,10 @@ Every upload of a track's audio is kept, one file per version, so an edit to `tr
 | `duration` | number | seconds |
 | `createdAt` | date | |
 | `name` | string | optional label, e.g. `"with Rhodes"` |
+| `detectedBPM`, `detectedKey` | number, string | optional: the tempo and key the app heard in this version's audio |
+| `detectedAt` | date | optional: when it listened (with no `detectedBPM` or `detectedKey`, it couldn't tell) |
+
+Key and tempo detection: when a track or a new version is added, the app listens to its audio and records what it hears on the version. The track's own `bpm` and `key` take those values on while they're empty or still hold a value the app detected for one of the track's versions; a value set by hand is never replaced (unless someone asks the app to detect again). When the current version changes, the track takes on that version's detected values in the same way.
 
 Versions are ordered by `createdAt` (ties by `id`), and a new version is always dated after the newest existing one, so "v1, v2, v3…" (position + 1) is stable. A track with no `Versions/` files (format 1) is read as a single version made from the top-level `audioFile` / `originalFileName` / `duration`. Its `id` is the track folder's ID, or `currentVersion` if `track.json` names one, which happens briefly while a newer track's version files are still syncing. New tracks get a version file straight away; format-1 tracks get them when a second version is added.
 

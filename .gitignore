@@ -18,3 +18,6 @@ Config/Signing.local.xcconfig
 
 # Reference material from the app this replaces (not ours to redistribute)
 0 - Reference Screenshots/
+
+# Real songs used to check key and tempo detection (the owner's music, not for the repo)
+1 - Test Songs/

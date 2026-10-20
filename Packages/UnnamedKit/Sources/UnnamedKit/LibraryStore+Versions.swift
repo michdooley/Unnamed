@@ -36,6 +36,7 @@ extension LibraryStore {
             if let analysis {
                 savePeaks(analysis.peaks, for: VersionKey(track: trackID, version: version.id))
             }
+            detectKeyAndTempo(of: trackID, version: version.id)
             return version.id
         } catch {
             report(error, title: "Couldn't add the new version")
@@ -47,6 +48,7 @@ extension LibraryStore {
     public func setCurrentVersion(_ versionID: UUID, of trackID: UUID) {
         guard tracks[trackID]?.versions.contains(where: { $0.id == versionID }) == true else { return }
         updateTrack(trackID) { $0.currentVersionID = versionID }
+        adoptKeyAndTempo(of: versionID, for: trackID)
         refreshCloudStatus(of: trackID)
     }
 
@@ -82,6 +84,9 @@ extension LibraryStore {
             if track.currentVersionID == versionID {
                 track.currentVersionID = track.versions.last?.id
             }
+        }
+        if track.currentVersionID == versionID, let current = tracks[trackID]?.currentVersionID {
+            adoptKeyAndTempo(of: current, for: trackID, judgedBy: track)
         }
         peaks[VersionKey(track: trackID, version: versionID)] = nil
         for comment in doomedComments {

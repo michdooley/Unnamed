@@ -285,6 +285,11 @@ private struct TrackSummary: View {
                     .font(.system(size: 12))
                     .foregroundStyle(.tertiary)
                     .padding(.top, 3)
+            } else if store.isListening(to: track.id) {
+                Text("Finding key and tempo…")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.tertiary)
+                    .padding(.top, 3)
             }
 
             WaveformView(
@@ -602,11 +607,10 @@ private struct EditTrackPane: View {
     /// written (and a rename synced from another device isn't overwritten).
     @State private var saved = (title: "", bpm: "", key: "")
     @State private var saveTask: Task<Void, Never>?
+    /// What the last "Detect from Audio" couldn't make out.
+    @State private var unheard: String?
 
-    static let keys: [String] = {
-        let notes = ["C", "C♯", "D", "E♭", "E", "F", "F♯", "G", "A♭", "A", "B♭", "B"]
-        return notes.map { "\($0) major" } + notes.map { "\($0) minor" }
-    }()
+    static let keys = MusicalKey.all.map(\.name)
 
     var body: some View {
         Form {
@@ -632,9 +636,22 @@ private struct EditTrackPane: View {
                     }
                 }
             }
-            Section("Musical details") {
-                TextField("BPM", text: $bpm, prompt: Text("e.g. 120"))
-                    .onSubmit(commit)
+            Section {
+                LabeledContent("BPM") {
+                    HStack(spacing: 8) {
+                        TextField("BPM", text: $bpm, prompt: Text("e.g. 120"))
+                            .labelsHidden()
+                            .onSubmit(commit)
+                        // Tempo detection can land on half or double time.
+                        Group {
+                            Button("½×") { scaleBPM(by: 0.5) }
+                                .help("Half time")
+                            Button("2×") { scaleBPM(by: 2) }
+                                .help("Double time")
+                        }
+                        .disabled(Double(bpm.replacingOccurrences(of: ",", with: ".").trimmingCharacters(in: .whitespaces)) == nil)
+                    }
+                }
                 Picker("Key", selection: $key) {
                     Text("None").tag("")
                     ForEach(Self.keys, id: \.self) { Text($0).tag($0) }
@@ -642,6 +659,21 @@ private struct EditTrackPane: View {
                         Text(key).tag(key)
                     }
                 }
+                HStack {
+                    Button("Detect from Audio") { detect() }
+                        .disabled(store.isListening(to: track.id))
+                    if store.isListening(to: track.id) {
+                        ProgressView().controlSize(.small)
+                        Text("Listening…").foregroundStyle(.secondary)
+                    } else if let unheard {
+                        Text(unheard).foregroundStyle(.secondary)
+                    }
+                }
+            } header: {
+                Text("Musical details")
+            } footer: {
+                Text("Key and BPM are worked out from the audio when it's added. Anything you set here stays as you set it.")
+                    .foregroundStyle(.secondary)
             }
             Section("File") {
                 LabeledContent("Added", value: Format.date(track.createdAt))
@@ -660,14 +692,52 @@ private struct EditTrackPane: View {
         }
         .onAppear {
             title = track.title
-            bpm = track.bpm.map { String(format: "%g", $0) } ?? ""
+            bpm = Self.format(track.bpm)
             key = track.musicalKey ?? ""
             saved = (title, bpm, key)
         }
         .onChange(of: title) { scheduleCommit() }
         .onChange(of: bpm) { scheduleCommit() }
         .onChange(of: key) { commit() }
+        // Detection can finish while the pane is open: show its results,
+        // unless the field is being edited.
+        .onChange(of: track.bpm) {
+            guard bpm == saved.bpm else { return }
+            bpm = Self.format(track.bpm)
+            saved.bpm = bpm
+        }
+        .onChange(of: track.musicalKey) {
+            guard key == saved.key else { return }
+            key = track.musicalKey ?? ""
+            saved.key = key
+        }
         .onDisappear(perform: commit)
+    }
+
+    private static func format(_ bpm: Double?) -> String {
+        bpm.map { String(format: "%g", $0) } ?? ""
+    }
+
+    private func scaleBPM(by factor: Double) {
+        guard let value = Double(bpm.replacingOccurrences(of: ",", with: ".").trimmingCharacters(in: .whitespaces)) else { return }
+        bpm = Self.format((value * factor * 100).rounded() / 100)
+        commit()
+    }
+
+    /// Listens again (downloading the audio if need be), replacing both values.
+    private func detect() {
+        commit()
+        unheard = nil
+        guard let job = store.detectKeyAndTempo(of: track.id, replacing: true) else { return }
+        Task {
+            let heard = await job.value
+            let missing = [heard?.bpm == nil ? "tempo" : nil, heard?.key == nil ? "key" : nil].compactMap { $0 }
+            if heard == nil {
+                unheard = "Couldn't read the audio."
+            } else if !missing.isEmpty {
+                unheard = "No clear \(missing.joined(separator: " or "))."
+            }
+        }
     }
 
     private func scheduleCommit() {

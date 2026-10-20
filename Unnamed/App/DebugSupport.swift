@@ -240,17 +240,17 @@ enum DebugSupport {
         let snippets = store.collections.values.first { $0.title == "Snippets" }
         if arguments.contains("-scratchProbe"), let snippets {
             await probeScratching(store: store, collectionID: snippets.id)
-            NSApp.terminate(nil)
+            quit()
             return
         }
         if arguments.contains("-perf"), let snippets {
             await runPerfScenarios(store: store, collectionID: snippets.id)
-            NSApp.terminate(nil)
+            quit()
             return
         }
         if arguments.contains("-boardProbe"), let snippets {
             await probeBoard(store: store, collectionID: snippets.id)
-            NSApp.terminate(nil)
+            quit()
             return
         }
         if arguments.contains("-boardLab"), let snippets {
@@ -327,6 +327,9 @@ enum DebugSupport {
                 await renderStandalone(TrackDetailsSheet(trackID: chords.id, collectionID: snippets.id), size: CGSize(width: 820, height: 580), name: "16-versions", folder: folder)
                 model.detail?.pane = .comments
                 await renderStandalone(TrackDetailsSheet(trackID: chords.id, collectionID: snippets.id), size: CGSize(width: 820, height: 580), name: "17-comments-per-version", folder: folder)
+                model.detail?.pane = .edit
+                await store.waitForDetection()
+                await renderStandalone(TrackDetailsSheet(trackID: chords.id, collectionID: snippets.id), size: CGSize(width: 820, height: 700), name: "17b-edit", folder: folder)
                 model.detail = nil
             }
         }
@@ -335,7 +338,7 @@ enum DebugSupport {
         model.player.setVolume(previousVolume)
         log("SNAPSHOTS: \(folder.path)")
         if arguments.contains("-quitAfterSnapshot") {
-            NSApp.terminate(nil)
+            quit()
         }
     }
 
@@ -387,7 +390,7 @@ enum DebugSupport {
         window.orderOut(nil)
         await renderStandalone(SettingsView(), size: CGSize(width: 540, height: 760), name: "settings", folder: folder)
         log("SNAPSHOTS: \(folder.path)")
-        if arguments.contains("-quitAfterSnapshot") { NSApp.terminate(nil) }
+        if arguments.contains("-quitAfterSnapshot") { quit() }
     }
 
     /// Liquid Glass pieces in an off-screen window, each captured by the
@@ -485,7 +488,7 @@ enum DebugSupport {
         await show(OnboardingView(), size: CGSize(width: 1100, height: 760), name: "glass-onboarding")
         model.player.stop()
         log("SNAPSHOTS: \(folder.path)")
-        if arguments.contains("-quitAfterSnapshot") { NSApp.terminate(nil) }
+        if arguments.contains("-quitAfterSnapshot") { quit() }
     }
 
     /// A moodboard for the demo collection: threads, pictures, words, a doodle.
@@ -931,7 +934,7 @@ enum DebugSupport {
         await shoot("board-8-window", after: .seconds(2.5))
         model.setMoodboardOpen(false)
         log("SNAPSHOTS: \(folder.path)")
-        if arguments.contains("-quitAfterSnapshot") { NSApp.terminate(nil) }
+        if arguments.contains("-quitAfterSnapshot") { quit() }
     }
 
     /// Drags the discs with synthetic mouse events (sent straight to a hidden
@@ -1020,7 +1023,7 @@ enum DebugSupport {
         }
         guard let store = model.store, let track = store.tracksNewestFirst.first else {
             log("FAIL no demo library")
-            NSApp.terminate(nil)
+            quit()
             return
         }
 
@@ -1108,7 +1111,7 @@ enum DebugSupport {
         check(NSApp.windows.contains { KeyboardShortcuts.isMainWindow($0) }, "the library window can be told apart (Escape closes the glass + menu)")
 
         log("SELFTEST \(failures == 0 ? "OK" : "FAILED (\(failures))")")
-        NSApp.terminate(nil)
+        quit()
     }
 
     /// The launch screen and the welcome screen (run with -showOnboarding).
@@ -1127,7 +1130,7 @@ enum DebugSupport {
         await shoot("0b-onboarding", after: .seconds(2))
         await shoot("0c-onboarding-later", after: .seconds(3))
         log("SNAPSHOTS: \(folder.path)")
-        if arguments.contains("-quitAfterSnapshot") { NSApp.terminate(nil) }
+        if arguments.contains("-quitAfterSnapshot") { quit() }
     }
 
     /// Renders the CD shader screens off-screen (no window needed) to
@@ -1164,7 +1167,19 @@ enum DebugSupport {
         render(AddMenu().background(Color(nsColor: .windowBackgroundColor)), "add-menu")
         render(UnsplashPicker(target: .collection(UUID())).background(Color(nsColor: .windowBackgroundColor)), "unsplash-connect")
         log("SNAPSHOTS: \(folder.path)")
+        quit()
+    }
+
+    /// Ends a debug run. Quitting from inside these flows has occasionally
+    /// been ignored (the window server keeps the app), so it also exits
+    /// outright a few seconds later.
+    @MainActor
+    static func quit() {
         NSApp.terminate(nil)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 6) {
+            AppModel.shared.store?.waitForWrites(timeout: 5)
+            exit(0)
+        }
     }
 
     static func argument(after flag: String) -> String? {

@@ -44,6 +44,9 @@ public final class LibraryStore {
     /// Moodboards, by collection (only collections that have one).
     public internal(set) var boards: [UUID: Moodboard] = [:]
     public private(set) var pendingImports: [PendingImport] = []
+    /// Tracks whose key and tempo are being listened for, and how many of
+    /// their versions are waiting (see `detectKeyAndTempo`).
+    public internal(set) var listening: [UUID: Int] = [:]
     public private(set) var isLoaded = false
     /// The most recent problem from a background operation. The UI shows and clears it.
     public var issue: LibraryIssue?
@@ -64,6 +67,8 @@ public final class LibraryStore {
     @ObservationIgnored private var pollTask: Task<Void, Never>?
     @ObservationIgnored private var downloadPollTask: Task<Void, Never>?
     @ObservationIgnored private var notesSaveTasks: [UUID: Task<Void, Never>] = [:]
+    /// Key and tempo detection runs one recording at a time, in this order.
+    @ObservationIgnored var detectionQueue: Task<Void, Never>?
     #if os(macOS)
     @ObservationIgnored private var watcher: FolderWatcher?
     #endif
@@ -114,6 +119,7 @@ public final class LibraryStore {
         }
         await reload()
         isLoaded = true
+        resumeDetection()
     }
 
     /// Re-reads the folder. Cheap: unchanged files are served from a cache.
@@ -411,6 +417,7 @@ public final class LibraryStore {
         save(track)
         saveVersions(of: track)
         if let analysis { savePeaks(analysis.peaks, for: VersionKey(track: id, version: id)) }
+        detectKeyAndTempo(of: id, version: id)
         return track
     }
 

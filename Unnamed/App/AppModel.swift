@@ -762,6 +762,16 @@ final class AppModel {
 
     // MARK: - Track actions
 
+    /// Listens to every track that hasn't got a key or a tempo yet.
+    func detectMissingKeysAndTempos() {
+        guard let store else { return }
+        let count = store.detectMissingKeysAndTempos()
+        showToast(Toast(
+            message: count == 0 ? "No tracks left to listen to" : "Finding the key and tempo of \(count) \(count == 1 ? "track" : "tracks")…",
+            systemImage: "waveform.badge.magnifyingglass"
+        ))
+    }
+
     /// Asks for a file and adds it as the track's newest version.
     func uploadNewVersion(of trackID: UUID) {
         guard let title = store?.tracks[trackID]?.title else { return }
